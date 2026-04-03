@@ -104,6 +104,17 @@ Program Parser::parse() {
     Program prog;
     while (!check(TokenKind::Eof)) {
         try {
+            // Engine block at top level: @unity { } / @unreal { }
+            // Detect before parse_annotations() consumes the tokens.
+            if (check(TokenKind::At) &&
+                peek(1).kind == TokenKind::Ident &&
+                peek(2).kind == TokenKind::LBrace) {
+                auto node = std::make_unique<StmtDecl>();
+                node->loc = cur_loc();
+                node->stmt = parse_engine_block_stmt();
+                prog.decls.push_back(std::move(node));
+                continue;
+            }
             auto annots = parse_annotations();
             if (check(TokenKind::Eof)) break;
             prog.decls.push_back(parse_decl(std::move(annots)));
@@ -158,10 +169,29 @@ DeclPtr Parser::parse_decl(std::vector<Annotation> annots) {
         case TokenKind::KwLet:
         case TokenKind::KwVar:    return parse_field_or_var_decl(std::move(annots), true);
         case TokenKind::KwImport: return parse_import_decl(std::move(annots));
+        // Statement-starting tokens allowed at top level (script mode)
+        case TokenKind::KwIf:
+        case TokenKind::KwWhile:
+        case TokenKind::KwFor:
+        case TokenKind::KwReturn:
+        case TokenKind::At: {
+            auto node = std::make_unique<StmtDecl>();
+            node->loc = cur_loc();
+            node->annotations = std::move(annots);
+            node->stmt = parse_stmt();
+            return node;
+        }
         default:
+            // Anything else: try parsing as an expression statement
+            if (!check(TokenKind::Eof)) {
+                auto node = std::make_unique<StmtDecl>();
+                node->loc = cur_loc();
+                node->annotations = std::move(annots);
+                node->stmt = parse_stmt();
+                return node;
+            }
             record_error("expected declaration");
             synchronize();
-            // Return a placeholder to keep parsing going
             auto imp = std::make_unique<ImportDecl>();
             imp->annotations = std::move(annots);
             imp->path = "<error>";
@@ -962,6 +992,21 @@ ExprPtr Parser::parse_primary() {
         node->loc   = loc;
         node->kind  = LitExpr::Kind::String;
         node->value = std::move(text);
+        return node;
+    }
+
+    // Table literal: {}
+    if (check(TokenKind::LBrace)) {
+        advance(); // {
+        expect(TokenKind::RBrace, "expected '}'");
+        // Represent as a zero-arg call to a synthetic "__newtable__" ident so the
+        // compiler can emit NewTable without a new AST node.
+        // Simpler: use a dedicated TableExpr — but we don't have one yet.
+        // For now return a LitExpr with a special sentinel value.
+        auto node   = std::make_unique<LitExpr>();
+        node->loc   = loc;
+        node->kind  = LitExpr::Kind::Nil;
+        node->value = "__table__";
         return node;
     }
 

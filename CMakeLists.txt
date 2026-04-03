@@ -10,6 +10,9 @@ add_library(zscript_core STATIC
     src/lexer.cpp
     src/token.cpp
     src/parser.cpp
+    src/chunk.cpp
+    src/compiler.cpp
+    src/vm.cpp
 )
 target_include_directories(zscript_core PUBLIC src)
 
@@ -28,3 +31,7 @@ add_test(NAME lexer COMMAND test_lexer)
 add_executable(test_parser tests/test_parser.cpp)
 target_link_libraries(test_parser PRIVATE zscript_core)
 add_test(NAME parser COMMAND test_parser)
+
+add_executable(test_vm tests/test_vm.cpp)
+target_link_libraries(test_vm PRIVATE zscript_core)
+add_test(NAME vm COMMAND test_vm)

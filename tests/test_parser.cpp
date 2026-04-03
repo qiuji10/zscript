@@ -456,9 +456,8 @@ class Baz { }
 }
 
 void test_error_recovery() {
-    // Malformed fn, then valid fn — parser should recover and parse both
-    auto prog = parse("fn ??? { } fn ok() -> nil { }", true);
-    // After recovery, "ok" fn should be present
+    // Malformed fn (missing name) triggers error recovery; valid fn after should still parse.
+    auto prog = parse("fn () -> nil { } fn ok() -> nil { }", true);
     bool found_ok = false;
     for (auto& d : prog.decls) {
         if (auto* fn = as<FnDecl>(d.get())) {

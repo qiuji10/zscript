@@ -262,6 +262,11 @@ struct ImportDecl : Decl {
     std::string path;
 };
 
+// Wraps a statement that appears at top level (script-style)
+struct StmtDecl : Decl {
+    StmtPtr stmt;
+};
+
 // ===========================================================================
 // Program root
 // ===========================================================================
