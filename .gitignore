@@ -1,0 +1,22 @@
+# Build directories
+/build/
+/cmake-build-*/
+
+# CMake and Ninja generated files
+/CMakeCache.txt
+/CMakeFiles/
+/cmake_install.cmake
+/compile_commands.json
+/CTestTestfile.cmake
+/Testing/
+/build.ninja
+/.ninja_deps
+/.ninja_log
+
+# Local tool caches
+/.cache/
+
+# Editor / OS files
+/.idea/
+/.vscode/
+.DS_Store
