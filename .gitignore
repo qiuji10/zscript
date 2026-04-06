@@ -20,3 +20,7 @@
 /.idea/
 /.vscode/
 .DS_Store
+
+# Visual Studio Code Extensions
+node_modules/
+out/

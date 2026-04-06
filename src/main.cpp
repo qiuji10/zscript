@@ -1,6 +1,8 @@
 #include "chunk.h"
 #include "compiler.h"
+#include "dap.h"
 #include "lexer.h"
+#include "lsp.h"
 #include "parser.h"
 #include "vm.h"
 #include <cstring>
@@ -193,17 +195,53 @@ static int cmd_disasm(int argc, char* argv[]) {
     return 0;
 }
 
+static int cmd_check(int argc, char* argv[]) {
+    // zsc check [--engine=...] <file.zs>  — compile only, report errors
+    EngineMode engine = EngineMode::None;
+    std::string file;
+    for (int i = 0; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--engine=unreal") engine = EngineMode::Unreal;
+        else if (arg == "--engine=unity") engine = EngineMode::Unity;
+        else if (arg == "--engine=none")  engine = EngineMode::None;
+        else if (arg[0] != '-') file = arg;
+    }
+    if (file.empty()) {
+        std::cerr << "usage: zsc check [--engine=...] <file.zs>\n";
+        return 1;
+    }
+    bool had_error = false;
+    compile_source(file, engine, had_error);
+    if (!had_error) std::cout << "ok\n";
+    return had_error ? 1 : 0;
+}
+
+static int cmd_lsp(int /*argc*/, char* /*argv*/[]) {
+    zscript::LspServer server;
+    server.run();
+    return 0;
+}
+
+static int cmd_dap(int /*argc*/, char* /*argv*/[]) {
+    zscript::DapServer server;
+    return server.run();
+}
+
 static void print_usage() {
     std::cout <<
         "ZScript compiler and runtime\n"
         "\n"
         "Usage:\n"
-        "  zsc run   [--engine=unreal|unity|none] <file.zs>   compile and run a script\n"
-        "  zsc compile [--engine=...] <file.zs> [-o out.zbc]  compile to bytecode\n"
-        "  zsc disasm <file.zbc>                               disassemble bytecode\n"
+        "  zsc run     [--engine=unreal|unity|none] <file.zs>  compile and run\n"
+        "  zsc check   [--engine=...] <file.zs>                compile only, report errors\n"
+        "  zsc compile [--engine=...] <file.zs> [-o out.zbc]   compile to bytecode\n"
+        "  zsc disasm  <file.zbc>                               disassemble bytecode\n"
+        "  zsc lsp                                              start LSP server (stdio)\n"
+        "  zsc dap                                              start DAP server (stdio)\n"
         "\n"
         "Examples:\n"
         "  zsc run hello.zs\n"
+        "  zsc check hello.zs\n"
         "  zsc compile game.zs -o game.zbc\n"
         "  zsc disasm game.zbc\n";
 }
@@ -221,10 +259,16 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "run")
         return cmd_run(argc - 2, argv + 2);
+    if (cmd == "check")
+        return cmd_check(argc - 2, argv + 2);
     if (cmd == "compile")
         return cmd_compile(argc - 2, argv + 2);
     if (cmd == "disasm")
         return cmd_disasm(argc - 2, argv + 2);
+    if (cmd == "lsp")
+        return cmd_lsp(argc - 2, argv + 2);
+    if (cmd == "dap")
+        return cmd_dap(argc - 2, argv + 2);
     if (cmd == "--help" || cmd == "-h") {
         print_usage();
         return 0;

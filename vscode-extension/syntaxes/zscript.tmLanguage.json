@@ -1,0 +1,109 @@
+{
+  "name": "ZScript",
+  "scopeName": "source.zscript",
+  "fileTypes": ["zs"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#literals" },
+    { "include": "#class-decl" },
+    { "include": "#fn-decl" },
+    { "include": "#operators" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.zscript",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.zscript",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.zscript",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "meta.embedded.expression.zscript",
+          "begin": "\\{",
+          "end": "\\}",
+          "patterns": [{ "include": "$self" }]
+        },
+        {
+          "name": "constant.character.escape.zscript",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.zscript",
+          "match": "\\b(if|else|while|for|in|return|break|continue)\\b"
+        },
+        {
+          "name": "keyword.declaration.zscript",
+          "match": "\\b(fn|class|trait|impl|var|let|import|mut)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.zscript",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "variable.language.zscript",
+          "match": "\\bself\\b"
+        },
+        {
+          "name": "storage.modifier.zscript",
+          "match": "@[a-zA-Z_][a-zA-Z0-9_.]*"
+        }
+      ]
+    },
+    "literals": {
+      "patterns": [
+        {
+          "name": "constant.language.zscript",
+          "match": "\\b(true|false|nil)\\b"
+        },
+        {
+          "name": "constant.numeric.float.zscript",
+          "match": "\\b[0-9]+\\.[0-9]*([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.zscript",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "class-decl": {
+      "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.zscript" },
+        "2": { "name": "entity.name.type.zscript" }
+      }
+    },
+    "fn-decl": {
+      "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.zscript" },
+        "2": { "name": "entity.name.function.zscript" }
+      }
+    },
+    "operators": {
+      "name": "keyword.operator.zscript",
+      "match": "[+\\-*/%%<>=!&|?.]+"
+    },
+    "identifiers": {
+      "name": "variable.other.zscript",
+      "match": "[A-Za-z_][A-Za-z0-9_]*"
+    }
+  }
+}

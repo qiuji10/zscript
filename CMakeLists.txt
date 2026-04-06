@@ -17,6 +17,8 @@ add_library(zscript_core STATIC
     src/module.cpp
     src/filewatcher.cpp
     src/hotpatch.cpp
+    src/lsp.cpp
+    src/dap.cpp
 )
 target_include_directories(zscript_core PUBLIC src)
 

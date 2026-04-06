@@ -1,0 +1,82 @@
+{
+  "name": "zscript",
+  "displayName": "ZScript",
+  "description": "ZScript language support: syntax highlighting, diagnostics, completion, hover, go-to-definition",
+  "version": "0.1.0",
+  "publisher": "zscript",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+"main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "zscript",
+        "aliases": ["ZScript", "zscript"],
+        "extensions": [".zs"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "zscript",
+        "scopeName": "source.zscript",
+        "path": "./syntaxes/zscript.tmLanguage.json"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "zscript",
+        "label": "ZScript Debug",
+        "languages": ["zscript"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the .zs file to debug."
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Pause on the first line.",
+                "default": false
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "zscript",
+            "request": "launch",
+            "name": "Debug ZScript",
+            "program": "${file}",
+            "stopOnEntry": false
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "ZScript",
+      "properties": {
+        "zscript.serverPath": {
+          "type": "string",
+          "default": "zsc",
+          "description": "Path to the zsc binary (must be on PATH or absolute)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
