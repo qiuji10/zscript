@@ -74,57 +74,56 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 ## Phase 3 — GC + Module System + C++ Binding API
 
 ### Garbage Collector
-- [ ] Incremental mark-and-sweep GC
-- [ ] Write barrier for incremental correctness
-- [ ] `ref` / `unref` API for C++ side to pin objects
-- [ ] GC tuning knobs (step size, pause threshold)
+- [x] Incremental mark-and-sweep GC (tri-color)
+- [x] Write barrier for incremental correctness
+- [x] `pin` / `unpin` API for C++ side to hold objects
+- [x] GC tuning knobs (step_alloc_limit)
 - [ ] (Stretch) Generational GC upgrade path
 
 ### Module System
-- [ ] Each `.zs` file = one independently loadable module
-- [ ] Module registry (name → compiled module)
-- [ ] `import` statement in language
-- [ ] Module load / unload lifecycle hooks
-- [ ] Circular import detection
+- [x] Each `.zs` file = one independently loadable module
+- [x] Module registry (name → compiled module, cached)
+- [x] Module load / execute lifecycle
+- [x] Circular import detection (via Loading state)
+- [x] Native module registration from C++
+- [x] Custom source provider (for embedding without FS)
 
 ### C++ Binding API
-- [ ] `ZScript::State` — argument access helpers (`s.arg<T>(n)`, return helpers)
-- [ ] `vm.register_function(name, lambda)` — free function registration
-- [ ] `vm.register_class<T>(name)` fluent builder:
-  - [ ] `.constructor<Args...>()`
-  - [ ] `.method(name, &T::method)`
-  - [ ] `.property(name, &T::field)`
-- [ ] `userdata` wrapper: C++ object lifecycle tied to GC
-- [ ] Error propagation: C++ exceptions → ZScript runtime errors
+- [x] Arg extraction helpers (`ArgOf<T>`) and return helpers (`RetOf<T>`)
+- [x] `vm.register_function(name, lambda)` — free function registration
+- [x] `register_class<T>(vm, name)` fluent builder:
+  - [x] `.constructor<Args...>()`
+  - [x] `.method(name, &T::method)`
+  - [x] `.property(name, &T::field)`
+- [x] Object registry (raw ptr → shared_ptr) for self extraction
+- [x] Error propagation: C++ exceptions → ZScript runtime errors
 
-### Macro Helper Layer (optional ergonomics)
-- [ ] `ZSCRIPT_CLASS` / `ZSCRIPT_METHOD` / `ZSCRIPT_PROPERTY` / `ZSCRIPT_END` macros
-- [ ] Self-registering static initializer pattern
-- [ ] `ZScript::register_all(vm)` — bulk registration entry point
+### Macro Helper Layer
+- [x] `ZSCRIPT_CLASS` / `ZSCRIPT_METHOD` / `ZSCRIPT_PROPERTY` / `ZSCRIPT_END` macros
+- [x] Self-registering static initializer pattern (`AutoRegister`)
+- [x] `ZScript::register_all(vm)` — bulk registration entry point
 
 ---
 
 ## Phase 4 — Hotpatch System + FileWatcher
 
 ### File Watcher
-- [ ] Platform abstraction interface (`IFileWatcher`)
-- [ ] Windows: `ReadDirectoryChangesW` backend
-- [ ] Linux: `inotify` backend
-- [ ] macOS: `FSEvents` backend
-- [ ] iOS / Android: polling fallback (configurable interval)
-- [ ] 50ms debounce after last change before firing recompile
+- [x] Platform abstraction interface (`IWatcherBackend`)
+- [x] Windows: `ReadDirectoryChangesW` backend
+- [x] Linux: `inotify` backend
+- [x] macOS: `FSEvents` backend (GCD dispatch queue)
+- [x] iOS / Android: polling fallback (configurable interval)
+- [x] 50ms debounce after last change before firing recompile
 
 ### Hotpatch Manager
-- [ ] Module version counter
-- [ ] Background recompile on file change
-- [ ] Atomic module pointer swap (new bytecode in, old bytecode kept alive)
-- [ ] Old module stays alive until all call frames referencing it drain
-- [ ] Global variable migration by name (old → new module version)
-- [ ] Closure upvalue migration hook
-- [ ] `on_reload(old: Any) -> Any` callback per module (user-defined)
-- [ ] `vm.enable_hotpatch(dir)` — watch a directory
-- [ ] `vm.poll()` — apply queued hotpatches at safe point (between frames)
-- [ ] Thread safety: FileWatcher thread enqueues, VM main thread drains at `poll()`
+- [x] Module version counter
+- [x] Background recompile on file change
+- [x] Atomic module pointer swap (new bytecode in, old bytecode kept alive)
+- [x] Global variable migration by name (old → new module version)
+- [x] `on_reload(old: Any) -> Any` callback per module (user-defined)
+- [x] `vm.enable_hotpatch(dir)` — watch a directory
+- [x] `vm.poll()` — apply queued hotpatches at safe point (between frames)
+- [x] Thread safety: FileWatcher thread enqueues, VM main thread drains at `poll()`
 
 ---
 

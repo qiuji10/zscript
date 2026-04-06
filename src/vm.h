@@ -1,28 +1,32 @@
 #pragma once
 #include "chunk.h"
+#include "gc.h"
+#include "module.h"
 #include "value.h"
-#include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace zscript {
 
+class HotpatchManager; // forward declaration — defined in hotpatch.h
+
 // ---------------------------------------------------------------------------
 // Runtime error
 // ---------------------------------------------------------------------------
 struct RuntimeError {
     std::string message;
-    std::string trace; // simple stack trace string
+    std::string trace;
 };
 
 // ---------------------------------------------------------------------------
-// CallFrame — one function invocation on the call stack
+// CallFrame
 // ---------------------------------------------------------------------------
 struct CallFrame {
     Proto*   proto    = nullptr;
-    size_t   pc       = 0;     // program counter (index into proto->code)
-    uint8_t  base_reg = 0;     // base register (offset into VM register window)
+    size_t   pc       = 0;
+    uint8_t  base_reg = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -31,31 +35,53 @@ struct CallFrame {
 class VM {
 public:
     VM();
+    ~VM();
 
     // --- setup ---
     void set_engine(EngineMode mode) { engine_ = mode; }
+    EngineMode engine_mode() const   { return engine_; }
+
     void register_function(const std::string& name, NativeFunction::Fn fn);
-    void open_stdlib();  // register built-in functions
+    void open_stdlib();
+
+    // --- module system ---
+    ModuleLoader& loader() { return loader_; }
+    // Import a module by name; its exports are merged into globals.
+    bool import_module(const std::string& name);
+    // Execute a Module's compiled chunk in its own namespace (called by loader).
+    bool execute_module(Module& mod, std::string& error_msg);
+    // Execute a compiled chunk under a module name (used by hotpatch).
+    bool execute_module(Chunk& chunk, const std::string& mod_name);
 
     // --- execution ---
-    // Run a compiled chunk. Returns true on success.
-    bool execute(Chunk& chunk);
-
-    // Call a global function by name. Returns the result value.
-    // Throws RuntimeError on failure.
+    bool  execute(Chunk& chunk);
+    bool  load_file(const std::string& path);
     Value call_global(const std::string& name, std::vector<Value> args = {});
+    // Call any callable Value (closure or native). Returns first return value or nil.
+    Value call_value(const Value& fn, std::vector<Value> args = {});
 
-    // --- globals access ---
+    // --- hotpatch ---
+    // Start watching dir for .zs file changes. Returns false on failure.
+    bool enable_hotpatch(const std::string& dir);
+    // Apply pending hotpatches at a safe point (between frames). Returns reload count.
+    int  poll();
+
+    // --- globals ---
     void  set_global(const std::string& name, Value v);
     Value get_global(const std::string& name) const;
+    const std::unordered_map<std::string, Value>& globals() const { return globals_; }
+
+    // --- GC ---
+    GC& gc() { return gc_; }
+    void gc_collect();
+    void track(GcObject* obj, size_t sz = 64) { gc_.track(obj, sz); }
 
     const RuntimeError& last_error() const { return last_error_; }
 
 private:
-    bool run();       // interpreter loop
+    bool run();
     bool call(uint8_t base_reg, uint8_t num_args, uint8_t num_results);
 
-    // Register window — flat array, indexed by frame.base_reg + local_reg
     static constexpr size_t MAX_REGS   = 1024;
     static constexpr size_t MAX_FRAMES = 200;
 
@@ -63,12 +89,16 @@ private:
     std::vector<CallFrame> frames_;
 
     CallFrame& cur_frame() { return frames_.back(); }
-    Value& reg(uint8_t r) { return regs_[cur_frame().base_reg + r]; }
 
     std::unordered_map<std::string, Value> globals_;
-    EngineMode                             engine_ = EngineMode::None;
-    RuntimeError                           last_error_;
+    EngineMode    engine_ = EngineMode::None;
+    GC            gc_;
+    ModuleLoader  loader_;
+    RuntimeError  last_error_;
 
+    std::unique_ptr<HotpatchManager> hotpatch_;
+
+    void mark_roots(GC& gc);
     void runtime_error(const std::string& msg);
     std::string format_trace() const;
 };

@@ -13,8 +13,17 @@ add_library(zscript_core STATIC
     src/chunk.cpp
     src/compiler.cpp
     src/vm.cpp
+    src/gc.cpp
+    src/module.cpp
+    src/filewatcher.cpp
+    src/hotpatch.cpp
 )
 target_include_directories(zscript_core PUBLIC src)
+
+# macOS: link CoreServices for FSEvents
+if(APPLE)
+    target_link_libraries(zscript_core PUBLIC "-framework CoreServices")
+endif()
 
 # CLI driver
 add_executable(zsc
@@ -35,3 +44,11 @@ add_test(NAME parser COMMAND test_parser)
 add_executable(test_vm tests/test_vm.cpp)
 target_link_libraries(test_vm PRIVATE zscript_core)
 add_test(NAME vm COMMAND test_vm)
+
+add_executable(test_phase3 tests/test_phase3.cpp)
+target_link_libraries(test_phase3 PRIVATE zscript_core)
+add_test(NAME phase3 COMMAND test_phase3)
+
+add_executable(test_phase4 tests/test_phase4.cpp)
+target_link_libraries(test_phase4 PRIVATE zscript_core)
+add_test(NAME phase4 COMMAND test_phase4)

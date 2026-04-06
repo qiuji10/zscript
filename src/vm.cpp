@@ -1,18 +1,25 @@
 #include "vm.h"
+#include "compiler.h"
+#include "hotpatch.h"
+#include "lexer.h"
+#include "parser.h"
 #include <cassert>
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <sstream>
-#include <stdexcept>
 
 namespace zscript {
 
 // ===========================================================================
-// Constructor
+// Constructor / Destructor
 // ===========================================================================
 VM::VM() {
     frames_.reserve(MAX_FRAMES);
 }
+
+// Destructor must be defined here so ~HotpatchManager is visible.
+VM::~VM() = default;
 
 // ===========================================================================
 // Setup
@@ -31,8 +38,102 @@ Value VM::get_global(const std::string& name) const {
 }
 
 // ===========================================================================
+// GC
+// ===========================================================================
+void VM::mark_roots(GC& gc) {
+    // Mark all live registers
+    for (auto& v : regs_) gc.mark_value(v);
+    // Mark all globals
+    for (auto& [k, v] : globals_) gc.mark_value(v);
+    // Mark module exports
+    for (auto& [name, mod] : loader_.modules()) {
+        for (auto& [k, v] : mod->exports) gc.mark_value(v);
+        gc.mark_value(mod->on_reload_fn);
+    }
+}
+
+void VM::gc_collect() {
+    gc_.collect([this](GC& gc) { mark_roots(gc); });
+}
+
+// ===========================================================================
+// Module system
+// ===========================================================================
+bool VM::import_module(const std::string& name) {
+    std::string err;
+    Module* mod = loader_.load(name, *this, err);
+    if (!mod) {
+        last_error_ = {err, ""};
+        return false;
+    }
+    // Merge module exports into VM globals
+    for (auto& [k, v] : mod->exports) {
+        globals_[k] = v;
+    }
+    return true;
+}
+
+bool VM::execute_module(Module& mod, std::string& error_msg) {
+    if (!mod.chunk || !mod.chunk->main_proto) {
+        error_msg = "module '" + mod.name + "' has no compiled code";
+        return false;
+    }
+
+    // Save current globals, run module with a fresh namespace, then collect exports.
+    auto saved_globals = globals_;
+    globals_.clear();
+    // Give the module access to stdlib (already registered in saved_globals)
+    for (auto& [k, v] : saved_globals) globals_[k] = v;
+
+    frames_.clear();
+    frames_.push_back({mod.chunk->main_proto, 0, 0});
+
+    bool ok = false;
+    try {
+        ok = run();
+    } catch (const RuntimeError& e) {
+        last_error_ = e;
+        error_msg   = e.message;
+    }
+
+    // Collect exports — everything the module defined that wasn't in stdlib
+    for (auto& [k, v] : globals_) {
+        if (saved_globals.find(k) == saved_globals.end()) {
+            mod.exports[k] = v;
+        }
+    }
+
+    // Restore caller's globals
+    globals_ = std::move(saved_globals);
+
+    return ok;
+}
+
+// ===========================================================================
 // Standard library
 // ===========================================================================
+bool VM::load_file(const std::string& path) {
+    std::ifstream f(path);
+    if (!f) { last_error_ = {"cannot open file: " + path, ""}; return false; }
+    std::ostringstream ss; ss << f.rdbuf();
+    Lexer lexer(ss.str(), path);
+    auto tokens = lexer.tokenize();
+    if (lexer.has_errors()) {
+        last_error_ = {lexer.errors()[0].message, ""}; return false;
+    }
+    Parser parser(std::move(tokens), path);
+    Program prog = parser.parse();
+    if (parser.has_errors()) {
+        last_error_ = {parser.errors()[0].message, ""}; return false;
+    }
+    Compiler compiler(engine_);
+    auto chunk = compiler.compile(prog, path);
+    if (compiler.has_errors()) {
+        last_error_ = {compiler.errors()[0].message, ""}; return false;
+    }
+    return execute(*chunk);
+}
+
 void VM::open_stdlib() {
     // print / log
     register_function("print", [](std::vector<Value> args) -> std::vector<Value> {
@@ -545,6 +646,79 @@ bool VM::run() {
         }
     } // end outer while
     return true;
+}
+
+// ===========================================================================
+// call_value — call any callable Value from C++
+// ===========================================================================
+Value VM::call_value(const Value& fn, std::vector<Value> args) {
+    if (fn.is_native()) {
+        auto results = fn.as_native()->fn(std::move(args));
+        return results.empty() ? Value::nil() : results[0];
+    }
+    if (fn.is_closure()) {
+        uint8_t base = 0;
+        regs_[base] = fn;
+        for (size_t i = 0; i < args.size(); ++i)
+            regs_[base + 1 + i] = args[i];
+        frames_.clear();
+        try {
+            call(base, (uint8_t)args.size(), 1);
+            run();
+            return regs_[base];
+        } catch (const RuntimeError& e) {
+            last_error_ = e;
+            return Value::nil();
+        }
+    }
+    return Value::nil();
+}
+
+// ===========================================================================
+// execute_module overload — used by hotpatch (takes Chunk directly)
+// ===========================================================================
+bool VM::execute_module(Chunk& chunk, const std::string& mod_name) {
+    if (!chunk.main_proto) {
+        last_error_ = {"module '" + mod_name + "' has no compiled code", ""};
+        return false;
+    }
+    auto saved = globals_;
+    globals_.clear();
+    for (auto& [k, v] : saved) globals_[k] = v;
+
+    frames_.clear();
+    frames_.push_back({chunk.main_proto, 0, 0});
+
+    bool ok = false;
+    try {
+        ok = run();
+    } catch (const RuntimeError& e) {
+        last_error_ = e;
+    }
+
+    // Merge new definitions back into globals (they become the module's exports)
+    for (auto& [k, v] : globals_) {
+        if (saved.find(k) == saved.end())
+            saved[k] = v; // new export
+        else
+            saved[k] = v; // updated export (hotpatch replaces old value)
+    }
+    globals_ = std::move(saved);
+    return ok;
+}
+
+// ===========================================================================
+// Hotpatch
+// ===========================================================================
+bool VM::enable_hotpatch(const std::string& dir) {
+    if (!hotpatch_)
+        hotpatch_ = std::make_unique<HotpatchManager>(*this);
+    return hotpatch_->enable(dir);
+}
+
+int VM::poll() {
+    if (!hotpatch_) return 0;
+    return hotpatch_->apply_pending();
 }
 
 } // namespace zscript
