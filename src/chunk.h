@@ -61,9 +61,12 @@ enum class Op : uint8_t {
     JumpTrue,     // A sBx           if  R[A]: PC += sBx
 
     // --- Functions ---
-    // Call uses a contiguous register window: callee in R[A], args in R[A+1..A+B]
-    // Result in R[A]
-    Call,         // A B C           R[A..A+C-1] = R[A](R[A+1..A+B])
+    // Call: plain call. Callee in R[A], args in R[A+1..A+B], result in R[A].
+    Call,         // A B C           R[A] = R[A](R[A+1..A+B])
+    // CallMethod: method call. Callee in R[A], self in R[A+1], user-args in R[A+2..A+1+B].
+    // For closures: frame base = A+1 (self=R[0], args=R[1..B]).
+    // For natives: receives only user-args R[A+2..A+1+B] (self is skipped).
+    CallMethod,   // A B C           R[A] = R[A](self=R[A+1], R[A+2..A+1+B])
     Return,       // A B             return R[A..A+B-1]  (B=0 → return nil)
     Closure,      // A Bx            R[A] = closure(Proto[Bx])
 

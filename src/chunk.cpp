@@ -99,8 +99,9 @@ const char* op_name(Op op) {
         case Op::Jump:      return "JUMP";
         case Op::JumpFalse: return "JUMP_FALSE";
         case Op::JumpTrue:  return "JUMP_TRUE";
-        case Op::Call:      return "CALL";
-        case Op::Return:    return "RETURN";
+        case Op::Call:       return "CALL";
+        case Op::CallMethod: return "CALL_METHOD";
+        case Op::Return:     return "RETURN";
         case Op::Closure:   return "CLOSURE";
         case Op::Concat:    return "CONCAT";
         case Op::CheckNil:  return "CHECK_NIL";

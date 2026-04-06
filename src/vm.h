@@ -81,6 +81,7 @@ public:
 private:
     bool run();
     bool call(uint8_t base_reg, uint8_t num_args, uint8_t num_results);
+    bool call_method(uint8_t base_reg, uint8_t user_args, uint8_t num_results);
 
     static constexpr size_t MAX_REGS   = 1024;
     static constexpr size_t MAX_FRAMES = 200;
@@ -97,6 +98,15 @@ private:
     RuntimeError  last_error_;
 
     std::unique_ptr<HotpatchManager> hotpatch_;
+
+    // Stack of pending constructors: each entry records the result register and
+    // instance for one class being constructed.  Nested constructors (e.g.
+    // Vec2 called inside Player.init) push on top; each init Return pops one.
+    struct PendingCtor {
+        uint8_t result_reg = 0;
+        Value   inst;
+    };
+    std::vector<PendingCtor> ctor_stack_;
 
     void mark_roots(GC& gc);
     void runtime_error(const std::string& msg);

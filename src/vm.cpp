@@ -354,6 +354,111 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
         return true; // run() will execute the new frame
     }
 
+    // ── Class instantiation: calling a table with __class__ ──────────────────
+    // When a class prototype table is called (e.g. Animal("Rex")), we:
+    //   1. Create a fresh instance table
+    //   2. Copy all method closures from the prototype
+    //   3. Set inst.__class__ to the class name
+    //   4. Call inst.init(args...) if it exists
+    //   5. Store the instance in the result register
+    if (callee.is_table()) {
+        Value cls_val = callee.as_table()->get("__class__");
+        if (cls_val.is_string()) {
+            // Build instance
+            Value inst = Value::from_table();
+            auto* proto_tbl = callee.as_table();
+            auto* inst_tbl  = inst.as_table();
+            // Copy methods (skip __class__)
+            for (auto& [k, v] : proto_tbl->hash) {
+                if (k != "__class__") inst_tbl->set(k, v);
+            }
+            inst_tbl->set("__class__", cls_val);
+
+            // Call init if present, passing instance as self + caller's args
+            Value init_fn = inst_tbl->get("init");
+            if (init_fn.is_closure()) {
+                Proto* init_proto = init_fn.as_closure()->proto;
+                if (frames_.size() >= MAX_FRAMES) runtime_error("stack overflow");
+
+                // Shift user args up by one to make room for self at slot 1.
+                // Caller placed args at abs_base+1..abs_base+num_args.
+                // We need: [method=abs_base, self=abs_base+1, arg0=abs_base+2, ...]
+                for (int i = num_args; i >= 1; --i)
+                    regs_[abs_base + 1 + i] = regs_[abs_base + i];
+                regs_[abs_base + 1] = inst; // self
+
+                CallFrame frame;
+                frame.proto    = init_proto;
+                frame.pc       = 0;
+                frame.base_reg = abs_base + 1; // self is reg 0 inside init
+                frames_.push_back(frame);
+                // Fill missing params with nil
+                for (uint8_t i = (uint8_t)(num_args + 1);
+                     i < init_proto->num_params; ++i)
+                    regs_[frame.base_reg + i] = Value::nil();
+
+                // After init returns, its Return handler writes nil to abs_base.
+                // Record the pending constructor so we can restore inst there.
+                ctor_stack_.push_back({abs_base, inst});
+                return true; // run() will execute init frame
+            }
+
+            // No init — just return the instance directly
+            regs_[abs_base] = inst;
+            return true;
+        }
+    }
+
+    runtime_error("attempt to call non-callable value (type: " + callee.type_name() + ")");
+    return false;
+}
+
+// ===========================================================================
+// call_method — method call: callee=R[A], self=R[A+1], user_args=R[A+2..A+1+B]
+// For native callees: self is skipped, only user args are passed.
+// For closure callees: frame.base_reg = abs_A+1 (self=R[0], user_args=R[1..B]).
+// ===========================================================================
+bool VM::call_method(uint8_t base_reg_offset, uint8_t user_args, uint8_t num_results) {
+    uint8_t abs_A    = cur_frame().base_reg + base_reg_offset;
+    Value&  callee   = regs_[abs_A];
+    uint8_t self_abs = abs_A + 1;  // self is always at abs_A+1
+
+    if (callee.is_native()) {
+        // Native: pass only user args (skip self)
+        std::vector<Value> args;
+        for (uint8_t i = 0; i < user_args; ++i)
+            args.push_back(regs_[abs_A + 2 + i]);
+        auto results = callee.as_native()->fn(std::move(args));
+        for (uint8_t i = 0; i < num_results && i < results.size(); ++i)
+            regs_[abs_A + i] = results[i];
+        for (uint8_t i = (uint8_t)results.size(); i < num_results; ++i)
+            regs_[abs_A + i] = Value::nil();
+        return true;
+    }
+
+    if (callee.is_closure()) {
+        Proto* proto = callee.as_closure()->proto;
+        if (frames_.size() >= MAX_FRAMES) runtime_error("stack overflow");
+        CallFrame frame;
+        frame.proto    = proto;
+        frame.pc       = 0;
+        frame.base_reg = self_abs;  // self at R[0], user_args at R[1..user_args]
+        frames_.push_back(frame);
+        // Fill missing params with nil (param 0 = self already in place)
+        for (uint8_t i = user_args + 1; i < proto->num_params; ++i)
+            regs_[self_abs + i] = Value::nil();
+        return true;
+    }
+
+    // Table with __class__ — should not normally arrive via CallMethod, but handle gracefully
+    if (callee.is_table()) {
+        // Treat as plain call with user_args args at abs_A+2..
+        // Shift args down by 1 to abs_A+1 so call() sees them correctly
+        for (uint8_t i = 0; i < user_args; ++i)
+            regs_[abs_A + 1 + i] = regs_[abs_A + 2 + i];
+        return call(base_reg_offset, user_args, num_results);
+    }
+
     runtime_error("attempt to call non-callable value (type: " + callee.type_name() + ")");
     return false;
 }
@@ -589,10 +694,23 @@ bool VM::run() {
 
                 case Op::Call: {
                     // A=callee_reg, B=num_args, C=num_results
-                    bool pushed_frame = !R(A).is_native() && R(A).is_callable();
+                    size_t frames_before = frames_.size();
                     call(A, B, C);
-                    if (pushed_frame) {
+                    if (frames_.size() > frames_before) {
                         frame_changed = true; // new frame pushed — break inner loop
+                    }
+                    break;
+                }
+
+                case Op::CallMethod: {
+                    // A=callee_reg, B=user_args, C=num_results
+                    // Layout: R[A]=method, R[A+1]=self, R[A+2..A+1+B]=user args
+                    // For closures: self becomes R[0] inside the frame (base_reg=abs_A+1)
+                    // For natives: self is skipped, only user args are passed
+                    size_t frames_before = frames_.size();
+                    call_method(A, B, C);
+                    if (frames_.size() > frames_before) {
+                        frame_changed = true;
                     }
                     break;
                 }
@@ -600,7 +718,6 @@ bool VM::run() {
                 case Op::Return: {
                     // A=first_result_reg, B=count (0 = return nil)
                     Value result = (B > 0) ? R(A) : Value::nil();
-                    // callee was at base_reg - 1 in the caller's window.
                     uint8_t this_base = base_reg;
                     frames_.pop_back();
                     frame_changed = true;
@@ -609,6 +726,14 @@ bool VM::run() {
                         regs_[this_base - 1] = result;
                     } else {
                         regs_[0] = result;
+                    }
+                    // If this was the init() frame for a constructor call,
+                    // restore the instance into the result register.
+                    // Match by result_reg (= this_base - 1) to handle nesting.
+                    if (!ctor_stack_.empty() &&
+                        ctor_stack_.back().result_reg == (uint8_t)(this_base - 1)) {
+                        regs_[ctor_stack_.back().result_reg] = ctor_stack_.back().inst;
+                        ctor_stack_.pop_back();
                     }
                     break;
                 }

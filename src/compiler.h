@@ -4,6 +4,7 @@
 #include "value.h"
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace zscript {
@@ -146,6 +147,13 @@ private:
     EngineMode              engine_    = EngineMode::None;
     std::unique_ptr<Chunk>  chunk_;
     std::vector<CompileError> errors_;
+
+    // Class name → set of method names (used during call compilation to know
+    // whether a bare call like Foo() is a class instantiation).
+    std::unordered_map<std::string, std::vector<std::string>> class_methods_;
+
+    // If non-empty, we are compiling a class method and self is in reg 0.
+    std::string current_class_;
 };
 
 } // namespace zscript

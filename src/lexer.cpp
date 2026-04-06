@@ -26,6 +26,8 @@ static const std::unordered_map<std::string, TokenKind> keywords = {
     {"true",   TokenKind::LitTrue},
     {"false",  TokenKind::LitFalse},
     {"nil",    TokenKind::LitNil},
+    {"and",    TokenKind::And},
+    {"or",     TokenKind::Or},
 };
 
 // ---------------------------------------------------------------------------
