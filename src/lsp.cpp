@@ -115,9 +115,9 @@ void LspServer::on_initialize(const Json& id, const Json& /*params*/) {
     // Full document sync
     caps["textDocumentSync"] = 1;
 
-    // Completion — trigger on dot, space
+    // Completion — trigger on dot only (space causes too much noise)
     Json cp = Json::object();
-    cp["triggerCharacters"] = Json(std::vector<Json>{".", " "});
+    cp["triggerCharacters"] = Json(std::vector<Json>{"."});
     cp["resolveProvider"]   = false;
     caps["completionProvider"] = std::move(cp);
 
@@ -202,8 +202,10 @@ void LspServer::on_completion(const Json& id, const Json& params) {
                         const std::string& detail, const std::string& doc) {
         if (!prefix.empty() && label.rfind(prefix, 0) != 0) return;
         Json item = Json::object();
-        item["label"]  = label;
-        item["kind"]   = lsp_completion_kind(kind);
+        item["label"]      = label;
+        item["kind"]       = lsp_completion_kind(kind);
+        item["insertText"] = label;   // explicit so VS Code doesn't use filterText
+        item["sortText"]   = label;   // alphabetic sort within our items
         if (!detail.empty()) item["detail"] = detail;
         if (!doc.empty())    item["documentation"] = doc;
         items.push_back(std::move(item));
@@ -275,8 +277,10 @@ void LspServer::on_completion(const Json& id, const Json& params) {
         for (auto& kw : keywords) {
             if (prefix.empty() || kw.rfind(prefix, 0) == 0) {
                 Json item = Json::object();
-                item["label"] = kw;
-                item["kind"]  = 14; // Keyword
+                item["label"]      = kw;
+                item["kind"]       = 14; // Keyword
+                item["insertText"] = kw;
+                item["sortText"]   = "z" + kw; // sort keywords after symbols
                 items.push_back(std::move(item));
             }
         }
@@ -284,8 +288,8 @@ void LspServer::on_completion(const Json& id, const Json& params) {
         // Stdlib builtins with detail strings (LSP kind 3 = Function)
         struct Builtin { const char* name; const char* detail; };
         static const Builtin builtins[] = {
-            {"print",     "fn print(...) -> Nil"},
             {"log",       "fn log(...) -> Nil"},
+            {"print",     "fn print(...) -> Nil"},
             {"tostring",  "fn tostring(v: Any) -> String"},
             {"tonumber",  "fn tonumber(v: Any) -> Int|Float|Nil"},
             {"type",      "fn type(v: Any) -> String"},
@@ -297,9 +301,10 @@ void LspServer::on_completion(const Json& id, const Json& params) {
         for (auto& b : builtins) {
             if (prefix.empty() || std::string(b.name).rfind(prefix, 0) == 0) {
                 Json item = Json::object();
-                item["label"]  = std::string(b.name);
-                item["kind"]   = 3; // Function
-                item["detail"] = std::string(b.detail);
+                item["label"]      = std::string(b.name);
+                item["kind"]       = 3; // Function
+                item["insertText"] = std::string(b.name);
+                item["detail"]     = std::string(b.detail);
                 items.push_back(std::move(item));
             }
         }

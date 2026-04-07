@@ -836,6 +836,30 @@ ExprPtr Parser::parse_unary() {
         TokenKind op  = peek().kind;
         SourceLoc loc = cur_loc();
         advance();
+
+        // If what follows can't start an expression, report the error here
+        // (at the operator) rather than deep inside parse_primary.
+        // This catches patterns like `i--` where the second `-` has no operand.
+        const TokenKind next = peek().kind;
+        bool can_start = (next == TokenKind::Bang   || next == TokenKind::Minus  ||
+                          next == TokenKind::LParen  || next == TokenKind::LBracket ||
+                          next == TokenKind::Ident   || next == TokenKind::KwSelf  ||
+                          next == TokenKind::KwFn    ||
+                          peek().is_literal());
+        if (!can_start) {
+            // Report at the operator location
+            ParseError e;
+            e.loc     = loc;
+            e.message = std::string("operand expected after '") +
+                        (op == TokenKind::Minus ? "-" : "!") + "'";
+            errors_.push_back(e);
+            auto nil = std::make_unique<LitExpr>();
+            nil->loc  = loc;
+            nil->kind = LitExpr::Kind::Nil;
+            nil->value = "";
+            return nil;
+        }
+
         auto node    = std::make_unique<UnaryExpr>();
         node->loc    = loc;
         node->op     = op;

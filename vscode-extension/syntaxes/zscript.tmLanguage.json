@@ -12,6 +12,7 @@
     { "include": "#class-decl" },
     { "include": "#trait-impl-decl" },
     { "include": "#fn-decl" },
+    { "include": "#fn-call" },
     { "include": "#operators" },
     { "include": "#identifiers" }
   ],
@@ -151,6 +152,13 @@
       "captures": {
         "1": { "name": "keyword.declaration.zscript" },
         "2": { "name": "entity.name.function.zscript" }
+      }
+    },
+    "fn-call": {
+      "comment": "Function call sites — any identifier immediately followed by (",
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.zscript" }
       }
     },
     "operators": {
