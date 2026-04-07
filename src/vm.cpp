@@ -286,23 +286,27 @@ Value VM::call_global(const std::string& name, std::vector<Value> args) {
         return results.empty() ? Value::nil() : results[0];
     }
     if (fn.is_closure()) {
-        // Place callee + args in a fresh register window above current usage
-        uint8_t base = 0;
-        regs_[base] = fn;
-        for (size_t i = 0; i < args.size(); ++i) {
-            regs_[base + 1 + i] = args[i];
-        }
+        // Place callee at reg 0, args at reg 1..n
+        regs_[0] = fn;
+        for (size_t i = 0; i < args.size(); ++i)
+            regs_[1 + i] = args[i];
+
         frames_.clear();
-        // dummy frame so run() can use cur_frame()
-        CallFrame dummy;
-        dummy.proto    = fn.as_closure()->proto;
-        dummy.pc       = 0;
-        dummy.base_reg = 0;
-        // We'll use call() directly
+        // Push the callee frame directly (base_reg=1 so args are reg 0..n-1 inside)
+        Proto* proto = fn.as_closure()->proto;
+        CallFrame frame;
+        frame.proto    = proto;
+        frame.pc       = 0;
+        frame.base_reg = 1;  // args start at regs_[1]
+        frames_.push_back(frame);
+        // Fill missing params with nil
+        for (uint8_t i = (uint8_t)args.size(); i < proto->num_params; ++i)
+            regs_[1 + i] = Value::nil();
+
         try {
-            call(base, (uint8_t)args.size(), 1);
             run();
-            return regs_[base];
+            // Return value stored at regs_[0] by Op::Return (this_base-1 = 1-1 = 0)
+            return regs_[0];
         } catch (const RuntimeError& e) {
             last_error_ = e;
             return Value::nil();

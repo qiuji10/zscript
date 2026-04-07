@@ -4,10 +4,13 @@
   "fileTypes": ["zs"],
   "patterns": [
     { "include": "#comments" },
+    { "include": "#annotations" },
     { "include": "#strings" },
     { "include": "#keywords" },
     { "include": "#literals" },
+    { "include": "#type-names" },
     { "include": "#class-decl" },
+    { "include": "#trait-impl-decl" },
     { "include": "#fn-decl" },
     { "include": "#operators" },
     { "include": "#identifiers" }
@@ -26,20 +29,46 @@
         }
       ]
     },
+    "annotations": {
+      "patterns": [
+        {
+          "name": "meta.annotation.zscript",
+          "begin": "@[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*",
+          "end": "(?=\\s|\\{|$)",
+          "beginCaptures": {
+            "0": { "name": "storage.modifier.annotation.zscript" }
+          },
+          "patterns": [
+            {
+              "name": "meta.annotation.arguments.zscript",
+              "begin": "\\(",
+              "end": "\\)",
+              "patterns": [
+                { "include": "#strings" },
+                { "include": "#literals" },
+                { "include": "#identifiers" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
     "strings": {
       "name": "string.quoted.double.zscript",
       "begin": "\"",
       "end": "\"",
       "patterns": [
         {
-          "name": "meta.embedded.expression.zscript",
+          "name": "meta.embedded.line.zscript",
           "begin": "\\{",
           "end": "\\}",
+          "beginCaptures": { "0": { "name": "punctuation.definition.template-expression.begin.zscript" } },
+          "endCaptures":   { "0": { "name": "punctuation.definition.template-expression.end.zscript" } },
           "patterns": [{ "include": "$self" }]
         },
         {
           "name": "constant.character.escape.zscript",
-          "match": "\\\\."
+          "match": "\\\\[nrtv\\\\\"'0]"
         }
       ]
     },
@@ -47,11 +76,11 @@
       "patterns": [
         {
           "name": "keyword.control.zscript",
-          "match": "\\b(if|else|while|for|in|return|break|continue)\\b"
+          "match": "\\b(if|else|while|for|in|return)\\b"
         },
         {
           "name": "keyword.declaration.zscript",
-          "match": "\\b(fn|class|trait|impl|var|let|import|mut)\\b"
+          "match": "\\b(fn|class|trait|impl|var|let|import|prop|mut)\\b"
         },
         {
           "name": "keyword.operator.logical.zscript",
@@ -60,10 +89,6 @@
         {
           "name": "variable.language.zscript",
           "match": "\\bself\\b"
-        },
-        {
-          "name": "storage.modifier.zscript",
-          "match": "@[a-zA-Z_][a-zA-Z0-9_.]*"
         }
       ]
     },
@@ -75,20 +100,51 @@
         },
         {
           "name": "constant.numeric.float.zscript",
-          "match": "\\b[0-9]+\\.[0-9]*([eE][+-]?[0-9]+)?\\b"
+          "match": "\\b[0-9][0-9_]*\\.[0-9_]*([eE][+-]?[0-9_]+)?\\b"
         },
         {
           "name": "constant.numeric.integer.zscript",
-          "match": "\\b[0-9]+\\b"
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "type-names": {
+      "patterns": [
+        {
+          "comment": "Highlight built-in and common type names",
+          "name": "support.type.zscript",
+          "match": "\\b(Int|Float|Bool|String|Void|Any|nil|Vec2|Vec3|Vec4|Quat|Transform|Actor|ActorComponent|MonoBehaviour|List|Map|Fn)\\b"
         }
       ]
     },
     "class-decl": {
-      "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s*(:)\\s*([A-Za-z_][A-Za-z0-9_]*))?",
       "captures": {
         "1": { "name": "keyword.declaration.zscript" },
-        "2": { "name": "entity.name.type.zscript" }
+        "2": { "name": "entity.name.type.class.zscript" },
+        "3": { "name": "punctuation.separator.inheritance.zscript" },
+        "4": { "name": "entity.other.inherited-class.zscript" }
       }
+    },
+    "trait-impl-decl": {
+      "patterns": [
+        {
+          "match": "\\b(trait)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.zscript" },
+            "2": { "name": "entity.name.type.trait.zscript" }
+          }
+        },
+        {
+          "match": "\\b(impl)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+(for)\\s+([A-Za-z_][A-Za-z0-9_]*))?",
+          "captures": {
+            "1": { "name": "keyword.declaration.zscript" },
+            "2": { "name": "entity.name.type.trait.zscript" },
+            "3": { "name": "keyword.control.zscript" },
+            "4": { "name": "entity.name.type.class.zscript" }
+          }
+        }
+      ]
     },
     "fn-decl": {
       "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
@@ -98,12 +154,53 @@
       }
     },
     "operators": {
-      "name": "keyword.operator.zscript",
-      "match": "[+\\-*/%%<>=!&|?.]+"
+      "patterns": [
+        {
+          "name": "keyword.operator.null-safety.zscript",
+          "match": "\\?\\.|!\\."
+        },
+        {
+          "name": "keyword.operator.range.zscript",
+          "match": "\\.\\.<|\\.\\."
+        },
+        {
+          "name": "keyword.operator.arrow.zscript",
+          "match": "->|=>"
+        },
+        {
+          "name": "keyword.operator.assignment.zscript",
+          "match": "\\+=|-=|="
+        },
+        {
+          "name": "keyword.operator.comparison.zscript",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.zscript",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.arithmetic.zscript",
+          "match": "[+\\-*/%]"
+        },
+        {
+          "name": "keyword.operator.nullable.zscript",
+          "match": "\\?"
+        }
+      ]
     },
     "identifiers": {
-      "name": "variable.other.zscript",
-      "match": "[A-Za-z_][A-Za-z0-9_]*"
+      "patterns": [
+        {
+          "comment": "PascalCase identifiers are likely type/class names",
+          "name": "entity.name.type.zscript",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "name": "variable.other.zscript",
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
     }
   }
 }

@@ -1,30 +1,17 @@
+#include <catch2/catch_test_macros.hpp>
 #include "lexer.h"
 #include "parser.h"
 #include "compiler.h"
 #include "vm.h"
 #include "gc.h"
 #include "binding.h"
-#include <iostream>
-#include <cassert>
+#include <cmath>
 
 using namespace zscript;
 
 // ---------------------------------------------------------------------------
-// Test harness
+// Ctx helper
 // ---------------------------------------------------------------------------
-static int g_pass = 0, g_fail = 0;
-
-#define EXPECT(cond, msg) \
-    do { if (cond) { ++g_pass; } \
-         else { ++g_fail; std::cerr << "FAIL [" << __LINE__ << "]: " << (msg) << "\n"; } \
-    } while(0)
-
-#define REQUIRE(cond, msg) \
-    do { if (!(cond)) { ++g_fail; \
-            std::cerr << "FAIL [" << __LINE__ << "]: " << (msg) << "\n"; return; } \
-         ++g_pass; \
-    } while(0)
-
 struct Ctx {
     VM vm;
     Ctx() { vm.open_stdlib(); }
@@ -34,21 +21,11 @@ struct Ctx {
         auto tokens = lexer.tokenize();
         Parser parser(std::move(tokens));
         Program prog = parser.parse();
-        if (parser.has_errors()) {
-            for (auto& e : parser.errors())
-                std::cerr << "  parse: " << e.message << "\n";
-            return false;
-        }
+        if (parser.has_errors()) return false;
         Compiler compiler;
         auto chunk = compiler.compile(prog, "<test>");
-        if (compiler.has_errors()) {
-            for (auto& e : compiler.errors())
-                std::cerr << "  compile: " << e.message << "\n";
-            return false;
-        }
-        bool ok = vm.execute(*chunk);
-        if (!ok) std::cerr << "  runtime: " << vm.last_error().message << "\n";
-        return ok;
+        if (compiler.has_errors()) return false;
+        return vm.execute(*chunk);
     }
     Value g(const std::string& n) { return vm.get_global(n); }
 };
@@ -57,233 +34,354 @@ struct Ctx {
 // GC tests
 // ===========================================================================
 
-void test_gc_tracks_objects() {
+TEST_CASE("GC tracks objects", "[gc]") {
     GC gc;
     auto str = std::make_shared<ZString>("hello");
     gc.track(str.get(), 32);
-    EXPECT(gc.num_objects() == 1, "tracked 1 object");
-    EXPECT(gc.bytes_allocated() == 32, "32 bytes tracked");
+    CHECK(gc.num_objects() == 1);
+    CHECK(gc.bytes_allocated() == 32);
 }
 
-void test_gc_collect_unreachable() {
+TEST_CASE("GC tracks multiple objects", "[gc]") {
     GC gc;
-    gc.step_alloc_limit = 1; // force collection immediately
+    auto s1 = std::make_shared<ZString>("one");
+    auto s2 = std::make_shared<ZString>("two");
+    auto s3 = std::make_shared<ZString>("three");
+    gc.track(s1.get(), 16);
+    gc.track(s2.get(), 16);
+    gc.track(s3.get(), 16);
+    CHECK(gc.num_objects() == 3);
+    CHECK(gc.bytes_allocated() == 48);
+}
+
+TEST_CASE("GC collects unreachable objects", "[gc]") {
+    GC gc;
+    gc.step_alloc_limit = 1;
     {
         auto str = std::make_shared<ZString>("temp");
         gc.track(str.get(), 32);
-        EXPECT(gc.num_objects() == 1, "tracked");
-        // Collect with no roots → str is unreachable → swept
-        gc.collect([](GC&) {}); // no roots
-        EXPECT(gc.num_objects() == 0, "swept unreachable string");
+        REQUIRE(gc.num_objects() == 1);
+        gc.collect([](GC&) {});
+        CHECK(gc.num_objects() == 0);
     }
 }
 
-void test_gc_keeps_pinned() {
+TEST_CASE("GC keeps pinned objects alive", "[gc]") {
     GC gc;
     auto str = std::make_shared<ZString>("pinned");
     gc.track(str.get(), 32);
     gc.pin(str.get());
     gc.collect([](GC&) {});
-    EXPECT(gc.num_objects() == 1, "pinned object survives GC");
+    CHECK(gc.num_objects() == 1);  // still alive
     gc.unpin(str.get());
     gc.collect([](GC&) {});
-    EXPECT(gc.num_objects() == 0, "unpinned object swept");
+    CHECK(gc.num_objects() == 0);  // swept after unpin
 }
 
-void test_gc_marks_roots() {
+TEST_CASE("GC pin multiple: only pinned survive", "[gc]") {
+    GC gc;
+    auto s1 = std::make_shared<ZString>("a");
+    auto s2 = std::make_shared<ZString>("b");
+    gc.track(s1.get(), 16);
+    gc.track(s2.get(), 16);
+    gc.pin(s1.get());
+    gc.collect([](GC&) {});
+    CHECK(gc.num_objects() == 1);
+    gc.unpin(s1.get());
+    gc.collect([](GC&) {});
+    CHECK(gc.num_objects() == 0);
+}
+
+TEST_CASE("GC marks roots via callback", "[gc]") {
     GC gc;
     auto str = std::make_shared<ZString>("root");
     gc.track(str.get(), 32);
     Value v = Value::from_string("root");
-    // Mark this value as a root
     gc.collect([&](GC& g) { g.mark_value(v); });
-    // The ZString in v.str_ptr is a different allocation from str — but the
-    // from_string call creates its own shared_ptr. Let's just verify the GC
-    // didn't crash and swept the unrelated one.
-    EXPECT(gc.num_objects() == 0, "unrooted object swept (different ptr)");
+    // v was created independently; the tracked ptr is different
+    CHECK(gc.num_objects() == 0);
 }
 
-void test_gc_table_traversal() {
+TEST_CASE("GC table traversal keeps children alive", "[gc]") {
     GC gc;
     auto tbl = std::make_shared<ZTable>();
     auto str = std::make_shared<ZString>("child");
     gc.track(tbl.get(), 64);
     gc.track(str.get(), 32);
 
-    // Table holds a reference to str
     Value sv; sv.tag = Value::Tag::String; sv.str_ptr = str;
     tbl->set("key", sv);
-
     Value tv; tv.tag = Value::Tag::Table; tv.table_ptr = tbl;
 
-    // Root = table value → should keep both table and string alive
     gc.collect([&](GC& g) { g.mark_value(tv); });
-    EXPECT(gc.num_objects() == 2, "table + child string both survive");
+    CHECK(gc.num_objects() == 2);  // table + child string survive
 }
 
-void test_gc_maybe_collect() {
+TEST_CASE("GC table: orphan child is swept", "[gc]") {
+    GC gc;
+    auto tbl = std::make_shared<ZTable>();
+    auto str = std::make_shared<ZString>("orphan");
+    gc.track(tbl.get(), 64);
+    gc.track(str.get(), 32);
+    // str NOT in tbl — orphan
+    Value tv; tv.tag = Value::Tag::Table; tv.table_ptr = tbl;
+    gc.collect([&](GC& g) { g.mark_value(tv); });
+    CHECK(gc.num_objects() == 1);  // only table survives
+}
+
+TEST_CASE("GC maybe_collect: under limit skips collection", "[gc]") {
     GC gc;
     gc.step_alloc_limit = 100;
-    size_t initial_collections = gc.num_collections();
-
-    // Under limit: no collection
     auto s1 = std::make_shared<ZString>("a");
     gc.track(s1.get(), 50);
     bool collected = gc.maybe_collect([](GC&) {});
-    EXPECT(!collected, "under limit: no collection");
+    CHECK(!collected);
+}
 
-    // Over limit: collection triggered
+TEST_CASE("GC maybe_collect: over limit triggers collection", "[gc]") {
+    GC gc;
+    gc.step_alloc_limit = 100;
+    size_t initial = gc.num_collections();
+    auto s1 = std::make_shared<ZString>("a");
     auto s2 = std::make_shared<ZString>("b");
-    gc.track(s2.get(), 60); // total 110 > 100
-    collected = gc.maybe_collect([](GC&) {});
-    EXPECT(collected, "over limit: collection triggered");
-    EXPECT(gc.num_collections() == initial_collections + 1, "collection count incremented");
+    gc.track(s1.get(), 60);
+    gc.track(s2.get(), 60);  // 120 > 100
+    bool collected = gc.maybe_collect([](GC&) {});
+    CHECK(collected);
+    CHECK(gc.num_collections() == initial + 1);
+}
+
+TEST_CASE("GC collection count increments", "[gc]") {
+    GC gc;
+    size_t n0 = gc.num_collections();
+    gc.collect([](GC&) {});
+    CHECK(gc.num_collections() == n0 + 1);
+    gc.collect([](GC&) {});
+    CHECK(gc.num_collections() == n0 + 2);
+}
+
+TEST_CASE("GC bytes decrease after collecting unreachable", "[gc]") {
+    GC gc;
+    auto str = std::make_shared<ZString>("data");
+    gc.track(str.get(), 100);
+    CHECK(gc.bytes_allocated() == 100);
+    gc.collect([](GC&) {});  // no roots → swept
+    CHECK(gc.bytes_allocated() == 0);
 }
 
 // ===========================================================================
 // Module tests
 // ===========================================================================
 
-void test_module_source_provider() {
+TEST_CASE("module source provider exports globals", "[module]") {
     VM vm;
     vm.open_stdlib();
-
-    // Register a source provider instead of filesystem
     vm.loader().set_source_provider([](const std::string& name) -> std::string {
-        if (name == "mylib") return "fn greet() -> nil { log(\"hello from mylib\") }  var VERSION = 42";
+        if (name == "mylib") return "fn greet() -> nil { log(\"hi\") }  var VERSION = 42";
         return "";
     });
-
     bool ok = vm.import_module("mylib");
-    EXPECT(ok, "module loaded");
-    // Module export should now be a global
-    Value ver = vm.get_global("VERSION");
-    EXPECT(ver.is_int() && ver.as_int() == 42, "VERSION exported from module");
-    Value greet = vm.get_global("greet");
-    EXPECT(greet.is_closure(), "greet exported as closure");
+    CHECK(ok);
+    CHECK(vm.get_global("VERSION").is_int());
+    CHECK(vm.get_global("VERSION").as_int() == 42);
+    CHECK(vm.get_global("greet").is_closure());
 }
 
-void test_module_cached() {
+TEST_CASE("module exports multiple functions", "[module]") {
+    VM vm;
+    vm.open_stdlib();
+    vm.loader().set_source_provider([](const std::string& name) -> std::string {
+        if (name == "mathlib") return R"(
+            fn add(a: Int, b: Int) -> Int { return a + b }
+            fn mul(a: Int, b: Int) -> Int { return a * b }
+            var ZERO = 0
+        )";
+        return "";
+    });
+    REQUIRE(vm.import_module("mathlib"));
+    CHECK(vm.get_global("add").is_closure());
+    CHECK(vm.get_global("mul").is_closure());
+    CHECK(vm.get_global("ZERO").as_int() == 0);
+}
+
+TEST_CASE("module is cached after first load", "[module]") {
     VM vm;
     vm.open_stdlib();
     int load_count = 0;
-
     vm.loader().set_source_provider([&](const std::string& name) -> std::string {
         if (name == "counter") { ++load_count; return "var N = 1"; }
         return "";
     });
-
     vm.import_module("counter");
-    vm.import_module("counter"); // second import: should be cached
-    EXPECT(load_count == 1, "module source loaded only once");
+    vm.import_module("counter");
+    CHECK(load_count == 1);
 }
 
-void test_native_module() {
+TEST_CASE("module function is callable after import", "[module]") {
     VM vm;
     vm.open_stdlib();
-
-    std::unordered_map<std::string, Value> exports;
-    exports["PI"] = Value::from_float(3.14159265358979);
-    exports["TAU"] = Value::from_float(6.28318530717959);
-    vm.loader().register_native("mathconst", std::move(exports));
-
-    bool ok = vm.import_module("mathconst");
-    EXPECT(ok, "native module loaded");
-    Value pi = vm.get_global("PI");
-    EXPECT(pi.is_float(), "PI is float");
-    EXPECT(std::abs(pi.to_float() - 3.14159265358979) < 1e-10, "PI value correct");
-}
-
-void test_module_circular_import_detected() {
-    VM vm;
-    vm.open_stdlib();
-    // Simulate a module that tries to load itself by calling load() twice.
-    // The second call should return the cached (Loading) module and trigger the guard.
     vm.loader().set_source_provider([](const std::string& name) -> std::string {
-        if (name == "circ") return "var X = 1"; // simple valid module
+        if (name == "utils") return "fn double(n: Int) -> Int { return n * 2 }";
         return "";
     });
+    REQUIRE(vm.import_module("utils"));
+    Value result = vm.call_global("double", {Value::from_int(21)});
+    CHECK(result.is_int());
+    CHECK(result.as_int() == 42);
+}
 
-    // First load succeeds.
+TEST_CASE("native module with value exports", "[module]") {
+    VM vm;
+    vm.open_stdlib();
+    std::unordered_map<std::string, Value> exports;
+    exports["PI"]  = Value::from_float(3.14159265358979);
+    exports["TAU"] = Value::from_float(6.28318530717959);
+    vm.loader().register_native("mathconst", std::move(exports));
+    REQUIRE(vm.import_module("mathconst"));
+    Value pi = vm.get_global("PI");
+    CHECK(pi.is_float());
+    CHECK(std::abs(pi.to_float() - 3.14159265358979) < 1e-10);
+}
+
+TEST_CASE("native module with function export", "[module]") {
+    VM vm;
+    vm.open_stdlib();
+    std::unordered_map<std::string, Value> exports;
+    exports["square"] = Value::from_native("square", [](std::vector<Value> args) -> std::vector<Value> {
+        int64_t n = args.empty() ? 0 : args[0].as_int();
+        return {Value::from_int(n * n)};
+    });
+    vm.loader().register_native("mymath", std::move(exports));
+    REQUIRE(vm.import_module("mymath"));
+    Value sq = vm.call_global("square", {Value::from_int(7)});
+    CHECK(sq.is_int());
+    CHECK(sq.as_int() == 49);
+}
+
+TEST_CASE("second module load returns cached module", "[module]") {
+    VM vm;
+    vm.open_stdlib();
+    vm.loader().set_source_provider([](const std::string& name) -> std::string {
+        if (name == "circ") return "var X = 1";
+        return "";
+    });
     std::string err;
-    Module* mod = vm.loader().load("circ", vm, err);
-    EXPECT(mod != nullptr && err.empty(), "first load succeeds");
-
-    // Second load hits the cache and returns immediately (no circular error since Loaded).
+    Module* mod  = vm.loader().load("circ", vm, err);
+    REQUIRE(mod != nullptr);
+    CHECK(err.empty());
     Module* mod2 = vm.loader().load("circ", vm, err);
-    EXPECT(mod2 == mod, "second load returns cached module");
+    CHECK(mod2 == mod);  // same cached pointer
+}
+
+TEST_CASE("empty module loads without error", "[module]") {
+    VM vm;
+    vm.open_stdlib();
+    vm.loader().set_source_provider([](const std::string& name) -> std::string {
+        if (name == "empty") return "";
+        return "";
+    });
+    CHECK(vm.import_module("empty"));
 }
 
 // ===========================================================================
-// C++ Binding API tests
+// C++ Binding API
 // ===========================================================================
 
-// A simple C++ class to bind
 struct Counter {
     int value = 0;
     explicit Counter(int start = 0) : value(start) {}
-    void increment()        { ++value; }
-    void add(int n)         { value += n; }
-    int  get() const        { return value; }
-    std::string name() const { return "Counter"; }
+    void increment()         { ++value; }
+    void decrement()         { --value; }
+    void add(int n)          { value += n; }
+    void reset()             { value = 0; }
+    int  get() const         { return value; }
+    bool is_positive() const { return value > 0; }
+    std::string to_str() const {
+        return "Counter(" + std::to_string(value) + ")";
+    }
 };
 
-void test_binding_constructor() {
+TEST_CASE("binding: constructor creates native in globals", "[binding]") {
     VM vm;
     vm.open_stdlib();
-
     register_class<Counter>(vm, "Counter")
         .constructor<int>()
-        .method("increment", &Counter::increment)
-        .method("add", &Counter::add)
         .method("get", &Counter::get)
         .commit();
-
     Value proto = vm.get_global("Counter");
-    REQUIRE(proto.is_table(), "Counter is a table");
+    REQUIRE(proto.is_table());
     Value ctor = proto.as_table()->get("new");
-    EXPECT(ctor.is_native(), "Counter.new is native");
+    CHECK(ctor.is_native());
 }
 
-void test_binding_method_call() {
+TEST_CASE("binding: default constructor gives zero value", "[binding]") {
     VM vm;
     vm.open_stdlib();
+    register_class<Counter>(vm, "Counter")
+        .constructor<>()
+        .method("get", &Counter::get)
+        .commit();
+    Value proto = vm.get_global("Counter");
+    Value ctor  = proto.as_table()->get("new");
+    REQUIRE(ctor.is_native());
+    auto instances = ctor.as_native()->fn({});
+    REQUIRE(!instances.empty());
+    Value inst   = instances[0];
+    Value get_fn = inst.as_table()->get("get");
+    auto res     = get_fn.as_native()->fn({inst});
+    CHECK(res[0].as_int() == 0);
+}
 
+TEST_CASE("binding: method call increment", "[binding]") {
+    VM vm;
+    vm.open_stdlib();
     register_class<Counter>(vm, "Counter")
         .constructor<int>()
         .method("increment", &Counter::increment)
-        .method("add",       &Counter::add)
         .method("get",       &Counter::get)
         .commit();
-
-    // Call Counter.new(5) from C++
     Value proto = vm.get_global("Counter");
     Value ctor  = proto.as_table()->get("new");
-    REQUIRE(ctor.is_native(), "ctor is native");
-
+    REQUIRE(ctor.is_native());
     auto instances = ctor.as_native()->fn({Value::from_int(5)});
-    REQUIRE(!instances.empty(), "got instance");
-    Value inst = instances[0];
-    REQUIRE(inst.is_table(), "instance is table");
-
-    // Call get() — should return 5
+    REQUIRE(!instances.empty());
+    Value inst   = instances[0];
+    REQUIRE(inst.is_table());
     Value get_fn = inst.as_table()->get("get");
-    REQUIRE(get_fn.is_native(), "get is native");
+    REQUIRE(get_fn.is_native());
     auto results = get_fn.as_native()->fn({inst});
-    REQUIRE(!results.empty(), "get returned a value");
-    EXPECT(results[0].as_int() == 5, "initial value is 5");
+    REQUIRE(!results.empty());
+    CHECK(results[0].as_int() == 5);
 
-    // Call increment()
     Value inc_fn = inst.as_table()->get("increment");
-    REQUIRE(inc_fn.is_native(), "increment is native");
+    REQUIRE(inc_fn.is_native());
     inc_fn.as_native()->fn({inst});
-
-    // get() should return 6
     results = get_fn.as_native()->fn({inst});
-    EXPECT(results[0].as_int() == 6, "value after increment is 6");
+    CHECK(results[0].as_int() == 6);
 }
 
-void test_binding_add_method() {
+TEST_CASE("binding: decrement method", "[binding]") {
+    VM vm;
+    vm.open_stdlib();
+    register_class<Counter>(vm, "Counter")
+        .constructor<int>()
+        .method("decrement", &Counter::decrement)
+        .method("get",       &Counter::get)
+        .commit();
+    Value proto  = vm.get_global("Counter");
+    Value ctor   = proto.as_table()->get("new");
+    Value inst   = ctor.as_native()->fn({Value::from_int(10)})[0];
+    Value dec_fn = inst.as_table()->get("decrement");
+    REQUIRE(dec_fn.is_native());
+    dec_fn.as_native()->fn({inst});
+    dec_fn.as_native()->fn({inst});
+    dec_fn.as_native()->fn({inst});
+    Value get_fn = inst.as_table()->get("get");
+    auto res     = get_fn.as_native()->fn({inst});
+    CHECK(res[0].as_int() == 7);
+}
+
+TEST_CASE("binding: add method", "[binding]") {
     VM vm;
     vm.open_stdlib();
     register_class<Counter>(vm, "Counter")
@@ -291,82 +389,141 @@ void test_binding_add_method() {
         .method("add", &Counter::add)
         .method("get", &Counter::get)
         .commit();
-
-    Value proto = vm.get_global("Counter");
-    Value ctor  = proto.as_table()->get("new");
-    Value inst  = ctor.as_native()->fn({Value::from_int(10)})[0];
-
+    Value proto  = vm.get_global("Counter");
+    Value ctor   = proto.as_table()->get("new");
+    Value inst   = ctor.as_native()->fn({Value::from_int(10)})[0];
     Value add_fn = inst.as_table()->get("add");
-    REQUIRE(add_fn.is_native(), "add is native");
+    REQUIRE(add_fn.is_native());
     add_fn.as_native()->fn({inst, Value::from_int(7)});
-
     Value get_fn = inst.as_table()->get("get");
     auto results = get_fn.as_native()->fn({inst});
-    EXPECT(results[0].as_int() == 17, "10 + 7 = 17");
+    CHECK(results[0].as_int() == 17);
 }
 
-void test_binding_property() {
+TEST_CASE("binding: reset method", "[binding]") {
+    VM vm;
+    vm.open_stdlib();
+    register_class<Counter>(vm, "Counter")
+        .constructor<int>()
+        .method("add",   &Counter::add)
+        .method("reset", &Counter::reset)
+        .method("get",   &Counter::get)
+        .commit();
+    Value proto    = vm.get_global("Counter");
+    Value ctor     = proto.as_table()->get("new");
+    Value inst     = ctor.as_native()->fn({Value::from_int(5)})[0];
+    Value add_fn   = inst.as_table()->get("add");
+    Value reset_fn = inst.as_table()->get("reset");
+    Value get_fn   = inst.as_table()->get("get");
+
+    add_fn.as_native()->fn({inst, Value::from_int(95)});
+    auto r1 = get_fn.as_native()->fn({inst});
+    CHECK(r1[0].as_int() == 100);
+
+    reset_fn.as_native()->fn({inst});
+    auto r2 = get_fn.as_native()->fn({inst});
+    CHECK(r2[0].as_int() == 0);
+}
+
+TEST_CASE("binding: bool return from method", "[binding]") {
+    VM vm;
+    vm.open_stdlib();
+    register_class<Counter>(vm, "Counter")
+        .constructor<int>()
+        .method("is_positive", &Counter::is_positive)
+        .commit();
+    Value proto    = vm.get_global("Counter");
+    Value ctor     = proto.as_table()->get("new");
+    Value pos_inst = ctor.as_native()->fn({Value::from_int(5)})[0];
+    Value neg_inst = ctor.as_native()->fn({Value::from_int(-1)})[0];
+
+    Value is_pos = pos_inst.as_table()->get("is_positive");
+    REQUIRE(is_pos.is_native());
+    auto r1 = is_pos.as_native()->fn({pos_inst});
+    CHECK(r1[0].as_bool() == true);
+
+    Value is_pos2 = neg_inst.as_table()->get("is_positive");
+    auto r2 = is_pos2.as_native()->fn({neg_inst});
+    CHECK(r2[0].as_bool() == false);
+}
+
+TEST_CASE("binding: property getter and setter", "[binding]") {
     VM vm;
     vm.open_stdlib();
     register_class<Counter>(vm, "Counter")
         .constructor<int>()
         .property("value", &Counter::value)
         .commit();
-
-    Value proto = vm.get_global("Counter");
-    Value ctor  = proto.as_table()->get("new");
-    Value inst  = ctor.as_native()->fn({Value::from_int(99)})[0];
-
-    // get_value
+    Value proto  = vm.get_global("Counter");
+    Value ctor   = proto.as_table()->get("new");
+    Value inst   = ctor.as_native()->fn({Value::from_int(99)})[0];
     Value getter = inst.as_table()->get("get_value");
-    REQUIRE(getter.is_native(), "get_value is native");
+    REQUIRE(getter.is_native());
     auto res = getter.as_native()->fn({inst});
-    EXPECT(res[0].as_int() == 99, "get_value returns 99");
+    CHECK(res[0].as_int() == 99);
 
-    // set_value
     Value setter = inst.as_table()->get("set_value");
-    REQUIRE(setter.is_native(), "set_value is native");
+    REQUIRE(setter.is_native());
     setter.as_native()->fn({inst, Value::from_int(42)});
     res = getter.as_native()->fn({inst});
-    EXPECT(res[0].as_int() == 42, "set_value changed to 42");
+    CHECK(res[0].as_int() == 42);
 }
 
-void test_register_all_macro() {
-    // Test that auto-registration works via the global registry
-    size_t before = global_registry().size();
-    // We can't use the macro without defining a new class, so just verify
-    // register_all doesn't crash on an empty VM.
+TEST_CASE("binding: property with zero value", "[binding]") {
     VM vm;
     vm.open_stdlib();
-    EXPECT(true, "register_all setup ok"); // placeholder
-    (void)before;
-}
-
-// ===========================================================================
-// Integration: binding + script calling a bound method
-// ===========================================================================
-
-void test_binding_from_script() {
-    VM vm;
-    vm.open_stdlib();
-
     register_class<Counter>(vm, "Counter")
         .constructor<int>()
-        .method("increment", &Counter::increment)
-        .method("add",       &Counter::add)
-        .method("get",       &Counter::get)
+        .property("value", &Counter::value)
+        .commit();
+    Value proto  = vm.get_global("Counter");
+    Value ctor   = proto.as_table()->get("new");
+    Value inst   = ctor.as_native()->fn({Value::from_int(0)})[0];
+    Value getter = inst.as_table()->get("get_value");
+    auto res     = getter.as_native()->fn({inst});
+    CHECK(res[0].as_int() == 0);
+}
+
+TEST_CASE("binding: multiple instances are independent", "[binding]") {
+    VM vm;
+    vm.open_stdlib();
+    register_class<Counter>(vm, "Counter")
+        .constructor<int>()
+        .method("add", &Counter::add)
+        .method("get", &Counter::get)
+        .commit();
+    Value proto  = vm.get_global("Counter");
+    Value ctor   = proto.as_table()->get("new");
+    Value inst1  = ctor.as_native()->fn({Value::from_int(0)})[0];
+    Value inst2  = ctor.as_native()->fn({Value::from_int(100)})[0];
+
+    inst1.as_table()->get("add").as_native()->fn({inst1, Value::from_int(5)});
+    inst2.as_table()->get("add").as_native()->fn({inst2, Value::from_int(10)});
+
+    auto r1 = inst1.as_table()->get("get").as_native()->fn({inst1});
+    auto r2 = inst2.as_table()->get("get").as_native()->fn({inst2});
+    CHECK(r1[0].as_int() == 5);
+    CHECK(r2[0].as_int() == 110);
+}
+
+// ===========================================================================
+// Integration: binding called from script
+// ===========================================================================
+
+TEST_CASE("binding called from ZScript", "[binding][integration]") {
+    VM vm;
+    vm.open_stdlib();
+    register_class<Counter>(vm, "Counter")
+        .constructor<int>()
+        .method("add", &Counter::add)
+        .method("get", &Counter::get)
         .commit();
 
-    // Script: create a Counter, call methods, read result
-    // (We call the native methods directly since method-on-table dispatch
-    //  from script requires self-passing — tested via C++ API path here)
-    Value proto = vm.get_global("Counter");
-    Value ctor  = proto.as_table()->get("new");
-    Value inst  = ctor.as_native()->fn({Value::from_int(0)})[0];
+    Value proto  = vm.get_global("Counter");
+    Value ctor   = proto.as_table()->get("new");
+    Value inst   = ctor.as_native()->fn({Value::from_int(0)})[0];
     vm.set_global("c", inst);
 
-    // Now run a script that calls methods on the bound object
-    // We'll expose the add method as a standalone helper
     Value add_fn = inst.as_table()->get("add");
     vm.set_global("counter_add", Value::from_native("counter_add",
         [add_fn, inst](std::vector<Value> args) mutable -> std::vector<Value> {
@@ -382,39 +539,37 @@ void test_binding_from_script() {
         }
     ));
 
-    Ctx ctx; // separate context
+    Ctx ctx;
     ctx.vm.set_global("counter_add", vm.get_global("counter_add"));
     ctx.vm.set_global("counter_get", vm.get_global("counter_get"));
-    ctx.run("counter_add(5)  counter_add(3)  var result = counter_get()");
-    EXPECT(ctx.g("result").as_int() == 8, "script called bound methods: 5+3=8");
+    REQUIRE(ctx.run("counter_add(5)  counter_add(3)  var result = counter_get()"));
+    CHECK(ctx.g("result").as_int() == 8);
 }
 
-// ===========================================================================
-// main
-// ===========================================================================
-int main() {
-    // GC
-    test_gc_tracks_objects();
-    test_gc_collect_unreachable();
-    test_gc_keeps_pinned();
-    test_gc_marks_roots();
-    test_gc_table_traversal();
-    test_gc_maybe_collect();
+TEST_CASE("native function registration and script call", "[binding][integration]") {
+    VM vm;
+    vm.open_stdlib();
+    vm.register_function("square", [](std::vector<Value> args) -> std::vector<Value> {
+        int64_t n = args.empty() ? 0 : args[0].as_int();
+        return {Value::from_int(n * n)};
+    });
 
-    // Modules
-    test_module_source_provider();
-    test_module_cached();
-    test_native_module();
-    test_module_circular_import_detected();
+    Ctx ctx;
+    ctx.vm.set_global("square", vm.get_global("square"));
+    REQUIRE(ctx.run("var r = square(9)"));
+    CHECK(ctx.g("r").as_int() == 81);
+}
 
-    // Binding API
-    test_binding_constructor();
-    test_binding_method_call();
-    test_binding_add_method();
-    test_binding_property();
-    test_register_all_macro();
-    test_binding_from_script();
+TEST_CASE("native function returning string", "[binding][integration]") {
+    VM vm;
+    vm.open_stdlib();
+    vm.register_function("make_greeting", [](std::vector<Value> args) -> std::vector<Value> {
+        std::string name = args.empty() ? "world" : args[0].as_string();
+        return {Value::from_string("Hello, " + name + "!")};
+    });
 
-    std::cout << "\nResults: " << g_pass << " passed, " << g_fail << " failed\n";
-    return g_fail > 0 ? 1 : 0;
+    Ctx ctx;
+    ctx.vm.set_global("make_greeting", vm.get_global("make_greeting"));
+    REQUIRE(ctx.run("var r = make_greeting(\"ZScript\")"));
+    CHECK(ctx.g("r").as_string() == "Hello, ZScript!");
 }

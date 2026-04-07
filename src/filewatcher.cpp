@@ -348,7 +348,11 @@ std::unique_ptr<IWatcherBackend> make_watcher_backend() {
 // ---------------------------------------------------------------------------
 // PollingBackend — used directly on fallback platforms and included everywhere
 // ---------------------------------------------------------------------------
-#include <dirent.h>
+#if defined(_WIN32)
+#  include <windows.h>
+#else
+#  include <dirent.h>
+#endif
 
 namespace zscript {
 
@@ -377,10 +381,41 @@ void PollingBackend::poll_loop() {
 }
 
 void PollingBackend::scan(const std::string& dir) {
+    std::unordered_map<std::string, int64_t> seen;
+
+#if defined(_WIN32)
+    WIN32_FIND_DATAA fdata;
+    std::string pattern = dir + "\\*";
+    HANDLE h = FindFirstFileA(pattern.c_str(), &fdata);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (fdata.cFileName[0] == '.') continue;
+        std::string full = dir + "\\" + fdata.cFileName;
+        if (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            scan(full);
+            continue;
+        }
+        // Combine low/high file time into a single 64-bit value
+        ULARGE_INTEGER ft;
+        ft.LowPart  = fdata.ftLastWriteTime.dwLowDateTime;
+        ft.HighPart = fdata.ftLastWriteTime.dwHighDateTime;
+        int64_t mtime = (int64_t)ft.QuadPart;
+        seen[full] = mtime;
+
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = mtimes_.find(full);
+        if (it == mtimes_.end()) {
+            mtimes_[full] = mtime;
+            cb_({full, WatchEvent::Created});
+        } else if (it->second != mtime) {
+            it->second = mtime;
+            cb_({full, WatchEvent::Modified});
+        }
+    } while (FindNextFileA(h, &fdata));
+    FindClose(h);
+#else
     DIR* d = opendir(dir.c_str());
     if (!d) return;
-
-    std::unordered_map<std::string, int64_t> seen;
 
     while (auto* ent = readdir(d)) {
         if (ent->d_name[0] == '.') continue;
@@ -390,7 +425,7 @@ void PollingBackend::scan(const std::string& dir) {
         if (::stat(full.c_str(), &st) != 0) continue;
 
         if (S_ISDIR(st.st_mode)) {
-            scan(full); // recurse
+            scan(full);
             continue;
         }
 
@@ -408,6 +443,7 @@ void PollingBackend::scan(const std::string& dir) {
         }
     }
     closedir(d);
+#endif
 
     // Detect deletions
     std::lock_guard<std::mutex> lk(mu_);

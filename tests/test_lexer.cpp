@@ -1,210 +1,532 @@
+#include <catch2/catch_test_macros.hpp>
 #include "lexer.h"
-#include <iostream>
-#include <cassert>
-#include <vector>
 
 using namespace zscript;
-
-// ---------------------------------------------------------------------------
-// Mini test harness
-// ---------------------------------------------------------------------------
-static int g_pass = 0, g_fail = 0;
-
-#define EXPECT(cond, msg) \
-    do { \
-        if (cond) { ++g_pass; } \
-        else { ++g_fail; std::cerr << "FAIL [" << __LINE__ << "]: " << msg << "\n"; } \
-    } while(0)
 
 static std::vector<Token> lex(const std::string& src) {
     Lexer l(src);
     return l.tokenize();
 }
-
 static TokenKind kind(const std::vector<Token>& ts, size_t i) {
     return ts[i].kind;
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Keywords
 // ---------------------------------------------------------------------------
 
-void test_keywords() {
+TEST_CASE("keywords are lexed correctly", "[lexer][keywords]") {
     auto ts = lex("let var fn return if else while for in class trait impl self mut import");
-    EXPECT(kind(ts,0)  == TokenKind::KwLet,    "let");
-    EXPECT(kind(ts,1)  == TokenKind::KwVar,    "var");
-    EXPECT(kind(ts,2)  == TokenKind::KwFn,     "fn");
-    EXPECT(kind(ts,3)  == TokenKind::KwReturn, "return");
-    EXPECT(kind(ts,4)  == TokenKind::KwIf,     "if");
-    EXPECT(kind(ts,5)  == TokenKind::KwElse,   "else");
-    EXPECT(kind(ts,6)  == TokenKind::KwWhile,  "while");
-    EXPECT(kind(ts,7)  == TokenKind::KwFor,    "for");
-    EXPECT(kind(ts,8)  == TokenKind::KwIn,     "in");
-    EXPECT(kind(ts,9)  == TokenKind::KwClass,  "class");
-    EXPECT(kind(ts,10) == TokenKind::KwTrait,  "trait");
-    EXPECT(kind(ts,11) == TokenKind::KwImpl,   "impl");
-    EXPECT(kind(ts,12) == TokenKind::KwSelf,   "self");
-    EXPECT(kind(ts,13) == TokenKind::KwMut,    "mut");
-    EXPECT(kind(ts,14) == TokenKind::KwImport, "import");
+    REQUIRE(kind(ts, 0)  == TokenKind::KwLet);
+    REQUIRE(kind(ts, 1)  == TokenKind::KwVar);
+    REQUIRE(kind(ts, 2)  == TokenKind::KwFn);
+    REQUIRE(kind(ts, 3)  == TokenKind::KwReturn);
+    REQUIRE(kind(ts, 4)  == TokenKind::KwIf);
+    REQUIRE(kind(ts, 5)  == TokenKind::KwElse);
+    REQUIRE(kind(ts, 6)  == TokenKind::KwWhile);
+    REQUIRE(kind(ts, 7)  == TokenKind::KwFor);
+    REQUIRE(kind(ts, 8)  == TokenKind::KwIn);
+    REQUIRE(kind(ts, 9)  == TokenKind::KwClass);
+    REQUIRE(kind(ts, 10) == TokenKind::KwTrait);
+    REQUIRE(kind(ts, 11) == TokenKind::KwImpl);
+    REQUIRE(kind(ts, 12) == TokenKind::KwSelf);
+    REQUIRE(kind(ts, 13) == TokenKind::KwMut);
+    REQUIRE(kind(ts, 14) == TokenKind::KwImport);
 }
 
-void test_literals() {
+TEST_CASE("keyword prefix is not a keyword", "[lexer][keywords]") {
+    auto ts = lex("letting variable");
+    CHECK(kind(ts, 0) == TokenKind::Ident);
+    CHECK(ts[0].lexeme == "letting");
+    CHECK(kind(ts, 1) == TokenKind::Ident);
+}
+
+TEST_CASE("logical operator keywords", "[lexer][keywords]") {
+    auto ts = lex("and or");
+    CHECK(kind(ts, 0) == TokenKind::And);
+    CHECK(kind(ts, 1) == TokenKind::Or);
+}
+
+// ---------------------------------------------------------------------------
+// Literals
+// ---------------------------------------------------------------------------
+
+TEST_CASE("basic literals", "[lexer][literals]") {
     auto ts = lex("42 3.14 true false nil");
-    EXPECT(kind(ts,0) == TokenKind::LitInt,   "int");
-    EXPECT(ts[0].lexeme == "42",              "int value");
-    EXPECT(kind(ts,1) == TokenKind::LitFloat, "float");
-    EXPECT(ts[1].lexeme == "3.14",            "float value");
-    EXPECT(kind(ts,2) == TokenKind::LitTrue,  "true");
-    EXPECT(kind(ts,3) == TokenKind::LitFalse, "false");
-    EXPECT(kind(ts,4) == TokenKind::LitNil,   "nil");
+    CHECK(kind(ts, 0) == TokenKind::LitInt);
+    CHECK(ts[0].lexeme == "42");
+    CHECK(kind(ts, 1) == TokenKind::LitFloat);
+    CHECK(ts[1].lexeme == "3.14");
+    CHECK(kind(ts, 2) == TokenKind::LitTrue);
+    CHECK(kind(ts, 3) == TokenKind::LitFalse);
+    CHECK(kind(ts, 4) == TokenKind::LitNil);
 }
 
-void test_number_separators() {
+TEST_CASE("integer zero", "[lexer][literals]") {
+    auto ts = lex("0");
+    CHECK(kind(ts, 0) == TokenKind::LitInt);
+    CHECK(ts[0].lexeme == "0");
+}
+
+TEST_CASE("large integer", "[lexer][literals]") {
+    auto ts = lex("9999999999");
+    CHECK(kind(ts, 0) == TokenKind::LitInt);
+    CHECK(ts[0].lexeme == "9999999999");
+}
+
+TEST_CASE("float literals", "[lexer][literals]") {
+    // Lexer requires digit after '.': "2." is LitInt + Dot
+    auto ts = lex("1.0 0.5");
+    CHECK(kind(ts, 0) == TokenKind::LitFloat);
+    CHECK(kind(ts, 1) == TokenKind::LitFloat);
+}
+
+TEST_CASE("trailing dot is not a float", "[lexer][literals]") {
+    auto ts = lex("2.");
+    CHECK(kind(ts, 0) == TokenKind::LitInt);
+    CHECK(kind(ts, 1) == TokenKind::Dot);
+}
+
+TEST_CASE("numeric separators", "[lexer][literals]") {
     auto ts = lex("1_000_000 3.14_15");
-    EXPECT(kind(ts,0) == TokenKind::LitInt,   "sep int");
-    EXPECT(ts[0].lexeme == "1000000",          "sep int value");
-    EXPECT(kind(ts,1) == TokenKind::LitFloat, "sep float");
-    EXPECT(ts[1].lexeme == "3.1415",           "sep float value");
+    CHECK(kind(ts, 0) == TokenKind::LitInt);
+    CHECK(ts[0].lexeme == "1000000");
+    CHECK(kind(ts, 1) == TokenKind::LitFloat);
+    CHECK(ts[1].lexeme == "3.1415");
 }
 
-void test_operators() {
+// ---------------------------------------------------------------------------
+// Operators
+// ---------------------------------------------------------------------------
+
+TEST_CASE("all operators", "[lexer][operators]") {
     auto ts = lex("+ - * / % == != < <= > >= && || ! = += -= -> => ?.  !. ..");
-    EXPECT(kind(ts,0)  == TokenKind::Plus,        "+");
-    EXPECT(kind(ts,1)  == TokenKind::Minus,       "-");
-    EXPECT(kind(ts,2)  == TokenKind::Star,        "*");
-    EXPECT(kind(ts,3)  == TokenKind::Slash,       "/");
-    EXPECT(kind(ts,4)  == TokenKind::Percent,     "%");
-    EXPECT(kind(ts,5)  == TokenKind::Eq,          "==");
-    EXPECT(kind(ts,6)  == TokenKind::NotEq,       "!=");
-    EXPECT(kind(ts,7)  == TokenKind::Lt,          "<");
-    EXPECT(kind(ts,8)  == TokenKind::LtEq,        "<=");
-    EXPECT(kind(ts,9)  == TokenKind::Gt,          ">");
-    EXPECT(kind(ts,10) == TokenKind::GtEq,        ">=");
-    EXPECT(kind(ts,11) == TokenKind::And,         "&&");
-    EXPECT(kind(ts,12) == TokenKind::Or,          "||");
-    EXPECT(kind(ts,13) == TokenKind::Bang,        "!");
-    EXPECT(kind(ts,14) == TokenKind::Assign,      "=");
-    EXPECT(kind(ts,15) == TokenKind::PlusAssign,  "+=");
-    EXPECT(kind(ts,16) == TokenKind::MinusAssign, "-=");
-    EXPECT(kind(ts,17) == TokenKind::Arrow,       "->");
-    EXPECT(kind(ts,18) == TokenKind::FatArrow,    "=>");
-    EXPECT(kind(ts,19) == TokenKind::QDot,        "?.");
-    EXPECT(kind(ts,20) == TokenKind::BangDot,     "!.");
-    EXPECT(kind(ts,21) == TokenKind::DotDot,      "..");
+    CHECK(kind(ts, 0)  == TokenKind::Plus);
+    CHECK(kind(ts, 1)  == TokenKind::Minus);
+    CHECK(kind(ts, 2)  == TokenKind::Star);
+    CHECK(kind(ts, 3)  == TokenKind::Slash);
+    CHECK(kind(ts, 4)  == TokenKind::Percent);
+    CHECK(kind(ts, 5)  == TokenKind::Eq);
+    CHECK(kind(ts, 6)  == TokenKind::NotEq);
+    CHECK(kind(ts, 7)  == TokenKind::Lt);
+    CHECK(kind(ts, 8)  == TokenKind::LtEq);
+    CHECK(kind(ts, 9)  == TokenKind::Gt);
+    CHECK(kind(ts, 10) == TokenKind::GtEq);
+    CHECK(kind(ts, 11) == TokenKind::And);
+    CHECK(kind(ts, 12) == TokenKind::Or);
+    CHECK(kind(ts, 13) == TokenKind::Bang);
+    CHECK(kind(ts, 14) == TokenKind::Assign);
+    CHECK(kind(ts, 15) == TokenKind::PlusAssign);
+    CHECK(kind(ts, 16) == TokenKind::MinusAssign);
+    CHECK(kind(ts, 17) == TokenKind::Arrow);
+    CHECK(kind(ts, 18) == TokenKind::FatArrow);
+    CHECK(kind(ts, 19) == TokenKind::QDot);
+    CHECK(kind(ts, 20) == TokenKind::BangDot);
+    CHECK(kind(ts, 21) == TokenKind::DotDot);
 }
 
-void test_range_operator() {
+TEST_CASE("exclusive range operator ..<", "[lexer][operators]") {
     auto ts = lex("0..<10");
-    EXPECT(kind(ts,0) == TokenKind::LitInt,   "range start");
-    EXPECT(kind(ts,1) == TokenKind::DotDotLt, "..<");
-    EXPECT(kind(ts,2) == TokenKind::LitInt,   "range end");
+    CHECK(kind(ts, 0) == TokenKind::LitInt);
+    CHECK(kind(ts, 1) == TokenKind::DotDotLt);
+    CHECK(kind(ts, 2) == TokenKind::LitInt);
 }
 
-void test_null_safety() {
-    auto ts = lex("actor? b?.Destroy() c!.Destroy()");
-    EXPECT(kind(ts,0) == TokenKind::Ident,    "actor");
-    EXPECT(kind(ts,1) == TokenKind::Question, "?");
-    EXPECT(kind(ts,2) == TokenKind::Ident,    "b");
-    EXPECT(kind(ts,3) == TokenKind::QDot,     "?.");
-    EXPECT(kind(ts,4) == TokenKind::Ident,    "Destroy");
-    EXPECT(kind(ts,8) == TokenKind::BangDot,  "!.");
+TEST_CASE("inclusive range operator ..", "[lexer][operators]") {
+    auto ts = lex("1..5");
+    CHECK(kind(ts, 0) == TokenKind::LitInt);
+    CHECK(kind(ts, 1) == TokenKind::DotDot);
+    CHECK(kind(ts, 2) == TokenKind::LitInt);
 }
 
-void test_plain_string() {
+TEST_CASE("punctuation tokens", "[lexer][operators]") {
+    auto ts = lex("{ } ( ) [ ] : , .");
+    CHECK(kind(ts, 0) == TokenKind::LBrace);
+    CHECK(kind(ts, 1) == TokenKind::RBrace);
+    CHECK(kind(ts, 2) == TokenKind::LParen);
+    CHECK(kind(ts, 3) == TokenKind::RParen);
+    CHECK(kind(ts, 4) == TokenKind::LBracket);
+    CHECK(kind(ts, 5) == TokenKind::RBracket);
+    CHECK(kind(ts, 6) == TokenKind::Colon);
+    CHECK(kind(ts, 7) == TokenKind::Comma);
+    CHECK(kind(ts, 8) == TokenKind::Dot);
+}
+
+TEST_CASE("arrow token vs minus+gt", "[lexer][operators]") {
+    // "->" is Arrow; "- >" is Minus then Gt
+    auto ts = lex("a->b");
+    CHECK(kind(ts, 0) == TokenKind::Ident);
+    CHECK(kind(ts, 1) == TokenKind::Arrow);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+
+    auto ts2 = lex("a - > b");
+    CHECK(kind(ts2, 1) == TokenKind::Minus);
+    CHECK(kind(ts2, 2) == TokenKind::Gt);
+}
+
+// ---------------------------------------------------------------------------
+// Null safety
+// ---------------------------------------------------------------------------
+
+TEST_CASE("null safety operators", "[lexer][null-safety]") {
+    auto ts = lex("b?.Destroy()");
+    CHECK(kind(ts, 0) == TokenKind::Ident);
+    CHECK(kind(ts, 1) == TokenKind::QDot);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+
+    auto ts2 = lex("c!.Destroy()");
+    CHECK(kind(ts2, 0) == TokenKind::Ident);
+    CHECK(kind(ts2, 1) == TokenKind::BangDot);
+}
+
+TEST_CASE("question mark in type position", "[lexer][null-safety]") {
+    auto ts = lex("Actor?");
+    CHECK(kind(ts, 0) == TokenKind::Ident);
+    CHECK(kind(ts, 1) == TokenKind::Question);
+}
+
+// ---------------------------------------------------------------------------
+// Strings
+// ---------------------------------------------------------------------------
+
+TEST_CASE("plain string literal", "[lexer][strings]") {
     auto ts = lex("\"hello world\"");
-    EXPECT(kind(ts,0) == TokenKind::LitString, "string kind");
-    EXPECT(ts[0].lexeme == "hello world",       "string value");
+    CHECK(kind(ts, 0) == TokenKind::LitString);
+    CHECK(ts[0].lexeme == "hello world");
 }
 
-void test_string_escape() {
-    auto ts = lex("\"line1\\nline2\"");
-    EXPECT(kind(ts,0) == TokenKind::LitString, "escape kind");
-    EXPECT(ts[0].lexeme == "line1\nline2",      "escape value");
+TEST_CASE("empty string", "[lexer][strings]") {
+    auto ts = lex("\"\"");
+    CHECK(kind(ts, 0) == TokenKind::LitString);
+    CHECK(ts[0].lexeme.empty());
 }
 
-void test_string_interp_simple() {
-    // "hello {name}" →
-    //   LitString("hello "), InterpStart, Ident("name"), InterpEnd, LitString("")
+TEST_CASE("string escape sequences", "[lexer][strings]") {
+    SECTION("newline") {
+        auto ts = lex("\"line1\\nline2\"");
+        CHECK(ts[0].lexeme == "line1\nline2");
+    }
+    SECTION("tab") {
+        auto ts = lex("\"col1\\tcol2\"");
+        CHECK(ts[0].lexeme == "col1\tcol2");
+    }
+    SECTION("quote") {
+        auto ts = lex("\"say \\\"hi\\\"\"");
+        CHECK(ts[0].lexeme == "say \"hi\"");
+    }
+    SECTION("backslash") {
+        auto ts = lex("\"a\\\\b\"");
+        CHECK(ts[0].lexeme == "a\\b");
+    }
+}
+
+TEST_CASE("simple string interpolation", "[lexer][strings][interp]") {
+    // "hello {name}" → LitString InterpStart Ident InterpEnd LitString
     auto ts = lex("\"hello {name}\"");
-    EXPECT(kind(ts,0) == TokenKind::LitString,   "prefix");
-    EXPECT(ts[0].lexeme == "hello ",              "prefix value");
-    EXPECT(kind(ts,1) == TokenKind::InterpStart,  "interp start");
-    EXPECT(kind(ts,2) == TokenKind::Ident,        "interp ident");
-    EXPECT(ts[2].lexeme == "name",                "interp ident value");
-    EXPECT(kind(ts,3) == TokenKind::InterpEnd,    "interp end");
-    EXPECT(kind(ts,4) == TokenKind::LitString,    "suffix");
-    EXPECT(ts[4].lexeme == "",                    "suffix empty");
+    REQUIRE(ts.size() >= 5);
+    CHECK(kind(ts, 0) == TokenKind::LitString);
+    CHECK(ts[0].lexeme == "hello ");
+    CHECK(kind(ts, 1) == TokenKind::InterpStart);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+    CHECK(ts[2].lexeme == "name");
+    CHECK(kind(ts, 3) == TokenKind::InterpEnd);
+    CHECK(kind(ts, 4) == TokenKind::LitString);
+    CHECK(ts[4].lexeme == "");
 }
 
-void test_string_interp_expr() {
-    // "x={a+b}!" → LitString("x="), InterpStart, Ident, Plus, Ident, InterpEnd, LitString("!")
+TEST_CASE("interpolation with expression", "[lexer][strings][interp]") {
+    // "x={a+b}!" → LitString InterpStart Ident Plus Ident InterpEnd LitString
     auto ts = lex("\"x={a+b}!\"");
-    EXPECT(kind(ts,0) == TokenKind::LitString,   "x=");
-    EXPECT(kind(ts,1) == TokenKind::InterpStart, "start");
-    EXPECT(kind(ts,2) == TokenKind::Ident,       "a");
-    EXPECT(kind(ts,3) == TokenKind::Plus,        "+");
-    EXPECT(kind(ts,4) == TokenKind::Ident,       "b");
-    EXPECT(kind(ts,5) == TokenKind::InterpEnd,   "end");
-    EXPECT(kind(ts,6) == TokenKind::LitString,   "!");
-    EXPECT(ts[6].lexeme == "!",                  "! value");
+    CHECK(kind(ts, 0) == TokenKind::LitString);
+    CHECK(kind(ts, 1) == TokenKind::InterpStart);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+    CHECK(kind(ts, 3) == TokenKind::Plus);
+    CHECK(kind(ts, 4) == TokenKind::Ident);
+    CHECK(kind(ts, 5) == TokenKind::InterpEnd);
+    CHECK(kind(ts, 6) == TokenKind::LitString);
+    CHECK(ts[6].lexeme == "!");
 }
 
-void test_annotation() {
-    // @unreal.uclass → At Ident Dot Ident
+TEST_CASE("multiple interpolations", "[lexer][strings][interp]") {
+    auto ts = lex("\"{a} and {b}\"");
+    CHECK(ts[0].lexeme.empty());
+    CHECK(kind(ts, 1) == TokenKind::InterpStart);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+    CHECK(kind(ts, 3) == TokenKind::InterpEnd);
+    CHECK(kind(ts, 4) == TokenKind::LitString);
+    CHECK(ts[4].lexeme == " and ");
+    CHECK(kind(ts, 5) == TokenKind::InterpStart);
+    CHECK(kind(ts, 6) == TokenKind::Ident);
+    CHECK(kind(ts, 7) == TokenKind::InterpEnd);
+}
+
+TEST_CASE("interpolation with method call", "[lexer][strings][interp]") {
+    auto ts = lex("\"{x.toStr()}\"");
+    CHECK(kind(ts, 1) == TokenKind::InterpStart);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+    CHECK(kind(ts, 3) == TokenKind::Dot);
+    CHECK(kind(ts, 4) == TokenKind::Ident);
+    CHECK(kind(ts, 5) == TokenKind::LParen);
+    CHECK(kind(ts, 6) == TokenKind::RParen);
+    CHECK(kind(ts, 7) == TokenKind::InterpEnd);
+}
+
+TEST_CASE("interpolation with field access", "[lexer][strings][interp]") {
+    auto ts = lex("\"pos={pos.x}\"");
+    CHECK(ts[0].lexeme == "pos=");
+    CHECK(kind(ts, 1) == TokenKind::InterpStart);
+    CHECK(kind(ts, 3) == TokenKind::Dot);
+    CHECK(kind(ts, 4) == TokenKind::Ident);
+    CHECK(ts[4].lexeme == "x");
+    CHECK(kind(ts, 5) == TokenKind::InterpEnd);
+}
+
+TEST_CASE("double-slash inside string is not a comment", "[lexer][strings]") {
+    auto ts = lex("\"not // a comment\"");
+    CHECK(kind(ts, 0) == TokenKind::LitString);
+    CHECK(ts[0].lexeme == "not // a comment");
+}
+
+// ---------------------------------------------------------------------------
+// Annotations
+// ---------------------------------------------------------------------------
+
+TEST_CASE("simple annotation", "[lexer][annotations]") {
+    auto ts = lex("@unity");
+    CHECK(kind(ts, 0) == TokenKind::At);
+    CHECK(kind(ts, 1) == TokenKind::Ident);
+    CHECK(ts[1].lexeme == "unity");
+}
+
+TEST_CASE("dotted annotation", "[lexer][annotations]") {
     auto ts = lex("@unreal.uclass");
-    EXPECT(kind(ts,0) == TokenKind::At,    "@");
-    EXPECT(kind(ts,1) == TokenKind::Ident, "unreal");
-    EXPECT(kind(ts,2) == TokenKind::Dot,   ".");
-    EXPECT(kind(ts,3) == TokenKind::Ident, "uclass");
+    CHECK(kind(ts, 0) == TokenKind::At);
+    CHECK(kind(ts, 1) == TokenKind::Ident);
+    CHECK(kind(ts, 2) == TokenKind::Dot);
+    CHECK(kind(ts, 3) == TokenKind::Ident);
+    CHECK(ts[3].lexeme == "uclass");
 }
 
-void test_line_comment() {
-    auto ts = lex("let x = 1 // this is a comment\nvar y = 2");
-    EXPECT(kind(ts,0) == TokenKind::KwLet, "let");
-    EXPECT(kind(ts,4) == TokenKind::KwVar, "var after comment");
+TEST_CASE("annotation with args", "[lexer][annotations]") {
+    auto ts = lex("@unreal.uproperty(EditAnywhere)");
+    CHECK(kind(ts, 0) == TokenKind::At);
+    CHECK(kind(ts, 4) == TokenKind::LParen);
+    CHECK(kind(ts, 5) == TokenKind::Ident);
+    CHECK(ts[5].lexeme == "EditAnywhere");
+    CHECK(kind(ts, 6) == TokenKind::RParen);
 }
 
-void test_block_comment() {
+// ---------------------------------------------------------------------------
+// Comments
+// ---------------------------------------------------------------------------
+
+TEST_CASE("line comment skipped", "[lexer][comments]") {
+    auto ts = lex("let x = 1 // comment\nvar y = 2");
+    CHECK(kind(ts, 0) == TokenKind::KwLet);
+    CHECK(kind(ts, 4) == TokenKind::KwVar);
+}
+
+TEST_CASE("block comment skipped", "[lexer][comments]") {
     auto ts = lex("let /* block */ x = 1");
-    EXPECT(kind(ts,0) == TokenKind::KwLet,  "let");
-    EXPECT(kind(ts,1) == TokenKind::Ident,  "x");
-    EXPECT(ts[1].lexeme == "x",             "x value");
+    CHECK(kind(ts, 0) == TokenKind::KwLet);
+    CHECK(kind(ts, 1) == TokenKind::Ident);
+    CHECK(ts[1].lexeme == "x");
 }
 
-void test_source_location() {
-    auto ts = lex("let\nx");
-    EXPECT(ts[0].loc.line == 1, "let line 1");
-    EXPECT(ts[0].loc.column == 1, "let col 1");
-    EXPECT(ts[1].loc.line == 2, "x line 2");
-    EXPECT(ts[1].loc.column == 1, "x col 1");
-}
-
-void test_eof() {
-    auto ts = lex("");
-    EXPECT(ts.size() == 1,               "only eof");
-    EXPECT(kind(ts,0) == TokenKind::Eof, "eof kind");
+TEST_CASE("multiline block comment", "[lexer][comments]") {
+    auto ts = lex("let /*\nblock\ncomment\n*/ x = 1");
+    CHECK(kind(ts, 0) == TokenKind::KwLet);
+    CHECK(kind(ts, 1) == TokenKind::Ident);
+    CHECK(ts[1].lexeme == "x");
 }
 
 // ---------------------------------------------------------------------------
-// main
+// Source locations
 // ---------------------------------------------------------------------------
-int main() {
-    test_keywords();
-    test_literals();
-    test_number_separators();
-    test_operators();
-    test_range_operator();
-    test_null_safety();
-    test_plain_string();
-    test_string_escape();
-    test_string_interp_simple();
-    test_string_interp_expr();
-    test_annotation();
-    test_line_comment();
-    test_block_comment();
-    test_source_location();
-    test_eof();
 
-    std::cout << "\nResults: " << g_pass << " passed, " << g_fail << " failed\n";
-    return g_fail > 0 ? 1 : 0;
+TEST_CASE("source locations", "[lexer][locations]") {
+    SECTION("basic line tracking") {
+        auto ts = lex("let\nx");
+        CHECK(ts[0].loc.line == 1);
+        CHECK(ts[0].loc.column == 1);
+        CHECK(ts[1].loc.line == 2);
+        CHECK(ts[1].loc.column == 1);
+    }
+    SECTION("column tracking") {
+        auto ts = lex("let x = 42");
+        CHECK(ts[0].loc.column == 1);
+        CHECK(ts[1].loc.column == 5);
+        CHECK(ts[2].loc.column == 7);
+        CHECK(ts[3].loc.column == 9);
+    }
+    SECTION("line after comment") {
+        auto ts = lex("// comment\nlet x");
+        CHECK(ts[0].loc.line == 2);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Identifiers
+// ---------------------------------------------------------------------------
+
+TEST_CASE("identifiers", "[lexer][idents]") {
+    SECTION("basic") {
+        auto ts = lex("foo Bar _baz x123");
+        CHECK(kind(ts, 0) == TokenKind::Ident);
+        CHECK(ts[0].lexeme == "foo");
+        CHECK(kind(ts, 1) == TokenKind::Ident);
+        CHECK(ts[1].lexeme == "Bar");
+        CHECK(kind(ts, 2) == TokenKind::Ident);
+        CHECK(ts[2].lexeme == "_baz");
+        CHECK(kind(ts, 3) == TokenKind::Ident);
+    }
+    SECTION("underscore prefix") {
+        auto ts = lex("_private __double");
+        CHECK(kind(ts, 0) == TokenKind::Ident);
+        CHECK(ts[0].lexeme == "_private");
+        CHECK(kind(ts, 1) == TokenKind::Ident);
+        CHECK(ts[1].lexeme == "__double");
+    }
+    SECTION("PascalCase") {
+        auto ts = lex("PlayerActor BeginPlay Vec3");
+        CHECK(kind(ts, 0) == TokenKind::Ident);
+        CHECK(kind(ts, 1) == TokenKind::Ident);
+        CHECK(kind(ts, 2) == TokenKind::Ident);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EOF
+// ---------------------------------------------------------------------------
+
+TEST_CASE("EOF handling", "[lexer][eof]") {
+    SECTION("empty input") {
+        auto ts = lex("");
+        CHECK(ts.size() == 1);
+        CHECK(kind(ts, 0) == TokenKind::Eof);
+    }
+    SECTION("eof at end of tokens") {
+        auto ts = lex("let x");
+        CHECK(ts.back().kind == TokenKind::Eof);
+    }
+    SECTION("whitespace only") {
+        auto ts = lex("   \n\t  \n  ");
+        CHECK(ts.size() == 1);
+        CHECK(kind(ts, 0) == TokenKind::Eof);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Integration / token sequences
+// ---------------------------------------------------------------------------
+
+TEST_CASE("class declaration token sequence", "[lexer][integration]") {
+    auto ts = lex("class PlayerActor : Actor {");
+    CHECK(kind(ts, 0) == TokenKind::KwClass);
+    CHECK(kind(ts, 1) == TokenKind::Ident);
+    CHECK(ts[1].lexeme == "PlayerActor");
+    CHECK(kind(ts, 2) == TokenKind::Colon);
+    CHECK(kind(ts, 3) == TokenKind::Ident);
+    CHECK(ts[3].lexeme == "Actor");
+    CHECK(kind(ts, 4) == TokenKind::LBrace);
+}
+
+TEST_CASE("fn declaration token sequence", "[lexer][integration]") {
+    auto ts = lex("fn tick(dt: Float) -> nil { }");
+    CHECK(kind(ts, 0) == TokenKind::KwFn);
+    CHECK(kind(ts, 1) == TokenKind::Ident);
+    CHECK(kind(ts, 2) == TokenKind::LParen);
+    CHECK(kind(ts, 3) == TokenKind::Ident);
+    CHECK(kind(ts, 4) == TokenKind::Colon);
+    CHECK(kind(ts, 5) == TokenKind::Ident);
+    CHECK(kind(ts, 6) == TokenKind::RParen);
+    CHECK(kind(ts, 7) == TokenKind::Arrow);
+    CHECK(kind(ts, 8) == TokenKind::LitNil);
+}
+
+TEST_CASE("let declaration token sequence", "[lexer][integration]") {
+    auto ts = lex("let speed: Float = 600");
+    CHECK(kind(ts, 0) == TokenKind::KwLet);
+    CHECK(kind(ts, 1) == TokenKind::Ident);
+    CHECK(ts[1].lexeme == "speed");
+    CHECK(kind(ts, 2) == TokenKind::Colon);
+    CHECK(kind(ts, 3) == TokenKind::Ident);
+    CHECK(ts[3].lexeme == "Float");
+    CHECK(kind(ts, 4) == TokenKind::Assign);
+    CHECK(kind(ts, 5) == TokenKind::LitInt);
+}
+
+TEST_CASE("generic call token sequence", "[lexer][integration]") {
+    auto ts = lex("GetComponent<Rigidbody>()");
+    CHECK(kind(ts, 0) == TokenKind::Ident);
+    CHECK(kind(ts, 1) == TokenKind::Lt);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+    CHECK(ts[2].lexeme == "Rigidbody");
+    CHECK(kind(ts, 3) == TokenKind::Gt);
+    CHECK(kind(ts, 4) == TokenKind::LParen);
+    CHECK(kind(ts, 5) == TokenKind::RParen);
+}
+
+TEST_CASE("engine block token sequence", "[lexer][integration]") {
+    // @unity { x = 1 } @unreal { x = 2 }
+    // indices: 0  1   2 3 4 5 6 7  8   ...
+    auto ts = lex("@unity { x = 1 } @unreal { x = 2 }");
+    CHECK(kind(ts, 0) == TokenKind::At);
+    CHECK(ts[1].lexeme == "unity");
+    CHECK(kind(ts, 2) == TokenKind::LBrace);
+    // RBrace at 6, second @ at 7
+    CHECK(kind(ts, 6) == TokenKind::RBrace);
+    CHECK(kind(ts, 7) == TokenKind::At);
+    CHECK(ts[8].lexeme == "unreal");
+}
+
+TEST_CASE("for range exclusive token sequence", "[lexer][integration]") {
+    auto ts = lex("for let i in 0..<10 { }");
+    CHECK(kind(ts, 0) == TokenKind::KwFor);
+    CHECK(kind(ts, 1) == TokenKind::KwLet);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+    CHECK(kind(ts, 3) == TokenKind::KwIn);
+    CHECK(kind(ts, 4) == TokenKind::LitInt);
+    CHECK(kind(ts, 5) == TokenKind::DotDotLt);
+    CHECK(kind(ts, 6) == TokenKind::LitInt);
+}
+
+TEST_CASE("delegate += token sequence", "[lexer][integration]") {
+    auto ts = lex("actor.OnHit += handler");
+    CHECK(kind(ts, 0) == TokenKind::Ident);
+    CHECK(kind(ts, 1) == TokenKind::Dot);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+    CHECK(kind(ts, 3) == TokenKind::PlusAssign);
+    CHECK(kind(ts, 4) == TokenKind::Ident);
+}
+
+TEST_CASE("delegate -= token sequence", "[lexer][integration]") {
+    auto ts = lex("actor.OnHit -= handler");
+    CHECK(kind(ts, 3) == TokenKind::MinusAssign);
+}
+
+TEST_CASE("safe call ?. token sequence", "[lexer][integration]") {
+    auto ts = lex("target?.GetActorLocation()");
+    CHECK(kind(ts, 0) == TokenKind::Ident);
+    CHECK(kind(ts, 1) == TokenKind::QDot);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+    CHECK(kind(ts, 3) == TokenKind::LParen);
+    CHECK(kind(ts, 4) == TokenKind::RParen);
+}
+
+TEST_CASE("force unwrap !. token sequence", "[lexer][integration]") {
+    auto ts = lex("target!.Destroy()");
+    CHECK(kind(ts, 0) == TokenKind::Ident);
+    CHECK(kind(ts, 1) == TokenKind::BangDot);
+    CHECK(kind(ts, 2) == TokenKind::Ident);
+}
+
+TEST_CASE("impl for token sequence", "[lexer][integration]") {
+    auto ts = lex("impl Movable for Transform { }");
+    CHECK(kind(ts, 0) == TokenKind::KwImpl);
+    CHECK(kind(ts, 1) == TokenKind::Ident);
+    CHECK(ts[1].lexeme == "Movable");
+    CHECK(kind(ts, 2) == TokenKind::KwFor);
+    CHECK(kind(ts, 3) == TokenKind::Ident);
+    CHECK(ts[3].lexeme == "Transform");
 }

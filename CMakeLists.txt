@@ -5,6 +5,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ---------------------------------------------------------------------------
+# Catch2 via FetchContent
+# ---------------------------------------------------------------------------
+include(FetchContent)
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        v3.7.1
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(Catch2)
+list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+
 # Core library
 add_library(zscript_core STATIC
     src/lexer.cpp
@@ -35,22 +48,24 @@ target_link_libraries(zsc PRIVATE zscript_core)
 
 # Tests
 enable_testing()
+include(Catch)
+
 add_executable(test_lexer tests/test_lexer.cpp)
-target_link_libraries(test_lexer PRIVATE zscript_core)
-add_test(NAME lexer COMMAND test_lexer)
+target_link_libraries(test_lexer PRIVATE zscript_core Catch2::Catch2WithMain)
+catch_discover_tests(test_lexer)
 
 add_executable(test_parser tests/test_parser.cpp)
-target_link_libraries(test_parser PRIVATE zscript_core)
-add_test(NAME parser COMMAND test_parser)
+target_link_libraries(test_parser PRIVATE zscript_core Catch2::Catch2WithMain)
+catch_discover_tests(test_parser)
 
 add_executable(test_vm tests/test_vm.cpp)
-target_link_libraries(test_vm PRIVATE zscript_core)
-add_test(NAME vm COMMAND test_vm)
+target_link_libraries(test_vm PRIVATE zscript_core Catch2::Catch2WithMain)
+catch_discover_tests(test_vm)
 
 add_executable(test_phase3 tests/test_phase3.cpp)
-target_link_libraries(test_phase3 PRIVATE zscript_core)
-add_test(NAME phase3 COMMAND test_phase3)
+target_link_libraries(test_phase3 PRIVATE zscript_core Catch2::Catch2WithMain)
+catch_discover_tests(test_phase3)
 
 add_executable(test_phase4 tests/test_phase4.cpp)
-target_link_libraries(test_phase4 PRIVATE zscript_core)
-add_test(NAME phase4 COMMAND test_phase4)
+target_link_libraries(test_phase4 PRIVATE zscript_core Catch2::Catch2WithMain)
+catch_discover_tests(test_phase4)

@@ -4,30 +4,36 @@ import * as vscode from "vscode";
 import {
   LanguageClient,
   LanguageClientOptions,
+  RevealOutputChannelOn,
   ServerOptions,
   TransportKind,
+  Trace,
 } from "vscode-languageclient/node";
 
 let client: LanguageClient | undefined;
+let outputChannel: vscode.OutputChannel | undefined;
 
-function resolveServerPath(): string | undefined {
+function resolveServerPath(): string {
   const config = vscode.workspace.getConfiguration("zscript");
   const configured: string = config.get("serverPath") ?? "";
 
-  // 1. Explicit setting (non-default)
+  // 1. Explicit path in settings
   if (configured && configured !== "zsc" && fs.existsSync(configured)) {
     return configured;
   }
 
-  // 2. Candidate paths relative to each workspace folder
+  // 2. Well-known build output paths relative to workspace roots
   const candidates: string[] = [];
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
     const root = folder.uri.fsPath;
     candidates.push(
-      path.join(root, "build", "zsc"),
+      path.join(root, "build", "Debug",   "zsc.exe"),
+      path.join(root, "build", "Release", "zsc.exe"),
+      path.join(root, "build", "Debug",   "zsc"),
       path.join(root, "build", "Release", "zsc"),
-      path.join(root, "build", "Debug", "zsc"),
-      path.join(root, "out", "zsc"),
+      path.join(root, "build", "zsc.exe"),
+      path.join(root, "build", "zsc"),
+      path.join(root, "out",   "zsc"),
     );
   }
 
@@ -35,18 +41,25 @@ function resolveServerPath(): string | undefined {
     if (fs.existsSync(c)) return c;
   }
 
-  // 3. Fallback: rely on PATH (will fail with ENOENT if not there)
+  // 3. Fall back to PATH
   return configured || "zsc";
 }
 
-export function activate(context: vscode.ExtensionContext) {
-  const serverPath = resolveServerPath();
-  if (!serverPath) {
-    vscode.window.showErrorMessage(
-      "ZScript: cannot find zsc binary. Set zscript.serverPath in settings."
-    );
-    return;
+function traceLevel(): Trace {
+  const level = vscode.workspace
+    .getConfiguration("zscript")
+    .get<string>("trace.server", "off");
+  switch (level) {
+    case "messages": return Trace.Messages;
+    case "verbose":  return Trace.Verbose;
+    default:         return Trace.Off;
   }
+}
+
+async function startClient(context: vscode.ExtensionContext): Promise<void> {
+  const serverPath = resolveServerPath();
+
+  outputChannel ??= vscode.window.createOutputChannel("ZScript Language Server");
 
   const serverOptions: ServerOptions = {
     command: serverPath,
@@ -59,6 +72,10 @@ export function activate(context: vscode.ExtensionContext) {
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.zs"),
     },
+    outputChannel,
+    revealOutputChannelOn: RevealOutputChannelOn.Error,
+    // Let the server advertise its own capabilities; no client-side overrides needed
+    initializationOptions: {},
   };
 
   client = new LanguageClient(
@@ -68,38 +85,80 @@ export function activate(context: vscode.ExtensionContext) {
     clientOptions
   );
 
-  client.start().catch((err) => {
-    vscode.window.showErrorMessage(
-      `ZScript LSP failed to start: ${err.message}\n` +
-        `Check that zsc is at: ${serverPath}\n` +
-        `Or set zscript.serverPath in your settings.`
-    );
-  });
+  client.setTrace(traceLevel());
 
+  try {
+    await client.start();
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(
+      `ZScript LSP failed to start: ${msg}\n` +
+      `Check that 'zsc' is at: ${serverPath}\n` +
+      `Or set zscript.serverPath in settings.`
+    );
+  }
+}
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  await startClient(context);
+
+  // Re-apply trace level when the setting changes
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("zscript.trace.server") && client) {
+        client.setTrace(traceLevel());
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("zscript.restartServer", async () => {
+      if (client) {
+        await client.stop();
+        client = undefined;
+      }
+      await startClient(context);
+      vscode.window.showInformationMessage("ZScript language server restarted.");
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("zscript.showServerPath", () => {
+      vscode.window.showInformationMessage(
+        `ZScript server path: ${resolveServerPath()}`
+      );
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("zscript.showOutput", () => {
+      outputChannel?.show(true);
+    })
+  );
+
+  // DAP support
   context.subscriptions.push(
     vscode.debug.registerDebugConfigurationProvider(
       "zscript",
-      new ZScriptDebugConfigProvider(serverPath)
+      new ZScriptDebugConfigProvider()
     )
   );
 
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory(
       "zscript",
-      new ZScriptDebugAdapterFactory(serverPath)
+      new ZScriptDebugAdapterFactory()
     )
   );
 }
 
-export function deactivate(): Thenable<void> | undefined {
-  return client?.stop();
+export async function deactivate(): Promise<void> {
+  if (client) await client.stop();
 }
 
 // ── DAP support ──────────────────────────────────────────────────────────────
 
 class ZScriptDebugConfigProvider implements vscode.DebugConfigurationProvider {
-  constructor(private serverPath: string) {}
-
   resolveDebugConfiguration(
     _folder: vscode.WorkspaceFolder | undefined,
     config: vscode.DebugConfiguration
@@ -120,14 +179,10 @@ class ZScriptDebugConfigProvider implements vscode.DebugConfigurationProvider {
   }
 }
 
-class ZScriptDebugAdapterFactory
-  implements vscode.DebugAdapterDescriptorFactory
-{
-  constructor(private serverPath: string) {}
-
+class ZScriptDebugAdapterFactory implements vscode.DebugAdapterDescriptorFactory {
   createDebugAdapterDescriptor(
     _session: vscode.DebugSession
   ): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-    return new vscode.DebugAdapterExecutable(this.serverPath, ["dap"]);
+    return new vscode.DebugAdapterExecutable(resolveServerPath(), ["dap"]);
   }
 }

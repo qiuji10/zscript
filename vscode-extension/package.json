@@ -1,12 +1,12 @@
 {
   "name": "zscript",
   "displayName": "ZScript",
-  "description": "ZScript language support: syntax highlighting, diagnostics, completion, hover, go-to-definition",
-  "version": "0.1.0",
+  "description": "ZScript language support: syntax highlighting, diagnostics, completion, hover, go-to-definition, signature help",
+  "version": "0.2.0",
   "publisher": "zscript",
   "engines": { "vscode": "^1.85.0" },
-  "categories": ["Programming Languages"],
-"main": "./out/extension.js",
+  "categories": ["Programming Languages", "Debuggers"],
+  "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
@@ -21,6 +21,20 @@
         "language": "zscript",
         "scopeName": "source.zscript",
         "path": "./syntaxes/zscript.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "zscript.restartServer",
+        "title": "ZScript: Restart Language Server"
+      },
+      {
+        "command": "zscript.showServerPath",
+        "title": "ZScript: Show Server Path"
+      },
+      {
+        "command": "zscript.showOutput",
+        "title": "ZScript: Show Language Server Output"
       }
     ],
     "debuggers": [
@@ -61,7 +75,14 @@
         "zscript.serverPath": {
           "type": "string",
           "default": "zsc",
-          "description": "Path to the zsc binary (must be on PATH or absolute)."
+          "description": "Path to the zsc binary. Leave as 'zsc' to auto-detect from workspace build folders or PATH."
+        },
+        "zscript.trace.server": {
+          "type": "string",
+          "scope": "window",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the ZScript language server."
         }
       }
     }

@@ -6,9 +6,14 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
-#include <limits.h>
 #include <sstream>
 #include <stdlib.h>
+#if defined(_WIN32)
+#  include <windows.h>
+#  include <direct.h>
+#else
+#  include <limits.h>
+#endif
 
 namespace zscript {
 
@@ -33,9 +38,15 @@ HotpatchManager::HotpatchManager(VM& vm) : vm_(vm) {}
 HotpatchManager::~HotpatchManager() { disable(); }
 
 static std::string canonical(const std::string& path) {
+#if defined(_WIN32)
+    char buf[MAX_PATH];
+    if (_fullpath(buf, path.c_str(), MAX_PATH)) return buf;
+    return path;
+#else
     char buf[PATH_MAX];
     if (realpath(path.c_str(), buf)) return buf;
     return path;
+#endif
 }
 
 bool HotpatchManager::enable(const std::string& dir) {
