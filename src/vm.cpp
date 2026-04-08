@@ -3,8 +3,10 @@
 #include "hotpatch.h"
 #include "lexer.h"
 #include "parser.h"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -135,100 +137,583 @@ bool VM::load_file(const std::string& path) {
 }
 
 void VM::open_stdlib() {
-    // print / log
+    // ── helpers ────────────────────────────────────────────────────────────
+    auto num_arg = [](const std::vector<Value>& a, size_t i) -> double {
+        if (i >= a.size()) return 0.0;
+        return a[i].to_float();
+    };
+    auto str_arg = [](const std::vector<Value>& a, size_t i) -> std::string {
+        if (i >= a.size()) return "";
+        return a[i].to_string();
+    };
+
+    // ── print / log ────────────────────────────────────────────────────────
     register_function("print", [](std::vector<Value> args) -> std::vector<Value> {
         for (size_t i = 0; i < args.size(); ++i) {
-            if (i > 0) std::cout << "\t";
+            if (i) std::cout << '\t';
             std::cout << args[i].to_string();
         }
-        std::cout << "\n";
+        std::cout << '\n';
         return {};
     });
     register_function("log", [](std::vector<Value> args) -> std::vector<Value> {
         for (auto& a : args) std::cout << a.to_string();
-        std::cout << "\n";
+        std::cout << '\n';
         return {};
     });
 
-    // tostring
+    // ── type conversion ────────────────────────────────────────────────────
     register_function("tostring", [](std::vector<Value> args) -> std::vector<Value> {
         if (args.empty()) return {Value::from_string("nil")};
         return {Value::from_string(args[0].to_string())};
     });
-
-    // tonumber
     register_function("tonumber", [](std::vector<Value> args) -> std::vector<Value> {
         if (args.empty()) return {Value::nil()};
         auto& a = args[0];
-        if (a.is_int())   return {a};
-        if (a.is_float()) return {a};
+        if (a.is_int() || a.is_float()) return {a};
         if (a.is_string()) {
             try {
                 size_t pos;
                 int64_t iv = std::stoll(a.as_string(), &pos);
                 if (pos == a.as_string().size()) return {Value::from_int(iv)};
-                double dv = std::stod(a.as_string(), &pos);
+                double  dv = std::stod(a.as_string(), &pos);
                 if (pos == a.as_string().size()) return {Value::from_float(dv)};
             } catch (...) {}
         }
         return {Value::nil()};
     });
-
-    // type
+    register_function("tobool", [](std::vector<Value> args) -> std::vector<Value> {
+        return {Value::from_bool(!args.empty() && args[0].truthy())};
+    });
     register_function("type", [](std::vector<Value> args) -> std::vector<Value> {
         if (args.empty()) return {Value::from_string("nil")};
         return {Value::from_string(args[0].type_name())};
     });
 
-    // assert
+    // ── assert / error ─────────────────────────────────────────────────────
     register_function("assert", [](std::vector<Value> args) -> std::vector<Value> {
         if (args.empty() || !args[0].truthy()) {
             std::string msg = (args.size() > 1) ? args[1].to_string() : "assertion failed";
             throw RuntimeError{msg, ""};
         }
+        return {args[0]};
+    });
+    register_function("error", [](std::vector<Value> args) -> std::vector<Value> {
+        std::string msg = args.empty() ? "error" : args[0].to_string();
+        throw RuntimeError{msg, ""};
         return {};
     });
 
-    // max / min
+    // ── global math shortcuts ──────────────────────────────────────────────
     register_function("max", [](std::vector<Value> args) -> std::vector<Value> {
-        if (args.size() < 2) return {args.empty() ? Value::nil() : args[0]};
-        auto& a = args[0]; auto& b = args[1];
-        if (a.is_int() && b.is_int())
-            return {Value::from_int(a.as_int() > b.as_int() ? a.as_int() : b.as_int())};
-        return {Value::from_float(a.to_float() > b.to_float() ? a.to_float() : b.to_float())};
+        if (args.empty()) return {Value::nil()};
+        Value best = args[0];
+        for (size_t i = 1; i < args.size(); ++i) {
+            auto& v = args[i];
+            bool gt = (best.is_int() && v.is_int()) ? (v.as_int() > best.as_int())
+                                                     : (v.to_float() > best.to_float());
+            if (gt) best = v;
+        }
+        return {best};
     });
     register_function("min", [](std::vector<Value> args) -> std::vector<Value> {
-        if (args.size() < 2) return {args.empty() ? Value::nil() : args[0]};
-        auto& a = args[0]; auto& b = args[1];
-        if (a.is_int() && b.is_int())
-            return {Value::from_int(a.as_int() < b.as_int() ? a.as_int() : b.as_int())};
-        return {Value::from_float(a.to_float() < b.to_float() ? a.to_float() : b.to_float())};
+        if (args.empty()) return {Value::nil()};
+        Value best = args[0];
+        for (size_t i = 1; i < args.size(); ++i) {
+            auto& v = args[i];
+            bool lt = (best.is_int() && v.is_int()) ? (v.as_int() < best.as_int())
+                                                     : (v.to_float() < best.to_float());
+            if (lt) best = v;
+        }
+        return {best};
     });
 
-    // math table
+    // ── len (global, works on string and table) ────────────────────────────
+    register_function("len", [](std::vector<Value> args) -> std::vector<Value> {
+        if (args.empty()) return {Value::from_int(0)};
+        auto& v = args[0];
+        if (v.is_string()) return {Value::from_int((int64_t)v.as_string().size())};
+        if (v.is_table())  return {Value::from_int((int64_t)v.as_table()->count())};
+        return {Value::from_int(0)};
+    });
+
+    // ── range(n) / range(start, stop) / range(start, stop, step) ──────────
+    register_function("range", [](std::vector<Value> args) -> std::vector<Value> {
+        int64_t start = 0, stop = 0, step = 1;
+        if (args.size() == 1) {
+            stop = args[0].is_int() ? args[0].as_int() : (int64_t)args[0].to_float();
+        } else if (args.size() >= 2) {
+            start = args[0].is_int() ? args[0].as_int() : (int64_t)args[0].to_float();
+            stop  = args[1].is_int() ? args[1].as_int() : (int64_t)args[1].to_float();
+            if (args.size() >= 3)
+                step = args[2].is_int() ? args[2].as_int() : (int64_t)args[2].to_float();
+        }
+        if (step == 0) throw RuntimeError{"range: step cannot be 0", ""};
+        Value tbl = Value::from_table();
+        auto* t = tbl.as_table();
+        int64_t idx = 0;
+        for (int64_t i = start; (step > 0 ? i < stop : i > stop); i += step)
+            t->set(std::to_string(idx++), Value::from_int(i));
+        return {tbl};
+    });
+
+    // ── math table ─────────────────────────────────────────────────────────
     Value math_tbl = Value::from_table();
     auto* mt = math_tbl.as_table();
-    auto set_fn = [&](const std::string& key, NativeFunction::Fn fn) {
+    auto mfn = [&](const std::string& key, NativeFunction::Fn fn) {
         mt->set(key, Value::from_native("math." + key, std::move(fn)));
     };
-    set_fn("floor", [](std::vector<Value> a) -> std::vector<Value> {
-        if (a.empty()) return {Value::nil()};
-        return {Value::from_int((int64_t)std::floor(a[0].to_float()))};
+
+    // Constants
+    mt->set("pi",   Value::from_float(M_PI));
+    mt->set("huge", Value::from_float(std::numeric_limits<double>::infinity()));
+    mt->set("inf",  Value::from_float(std::numeric_limits<double>::infinity()));
+    mt->set("nan",  Value::from_float(std::numeric_limits<double>::quiet_NaN()));
+
+    // Basic
+    mfn("floor", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_int((int64_t)std::floor(num_arg(a, 0)))};
     });
-    set_fn("ceil", [](std::vector<Value> a) -> std::vector<Value> {
-        if (a.empty()) return {Value::nil()};
-        return {Value::from_int((int64_t)std::ceil(a[0].to_float()))};
+    mfn("ceil", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_int((int64_t)std::ceil(num_arg(a, 0)))};
     });
-    set_fn("sqrt", [](std::vector<Value> a) -> std::vector<Value> {
-        if (a.empty()) return {Value::nil()};
-        return {Value::from_float(std::sqrt(a[0].to_float()))};
+    mfn("round", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_int((int64_t)std::round(num_arg(a, 0)))};
     });
-    set_fn("abs", [](std::vector<Value> a) -> std::vector<Value> {
-        if (a.empty()) return {Value::nil()};
+    mfn("abs", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty()) return {Value::from_int(0)};
         if (a[0].is_int()) return {Value::from_int(std::abs(a[0].as_int()))};
         return {Value::from_float(std::abs(a[0].to_float()))};
     });
+    mfn("sqrt", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_float(std::sqrt(num_arg(a, 0)))};
+    });
+    mfn("pow", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_float(std::pow(num_arg(a, 0), num_arg(a, 1)))};
+    });
+    mfn("exp", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_float(std::exp(num_arg(a, 0)))};
+    });
+    mfn("log", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        double x = num_arg(a, 0);
+        if (a.size() >= 2) return {Value::from_float(std::log(x) / std::log(num_arg(a, 1)))};
+        return {Value::from_float(std::log(x))};
+    });
+    mfn("log10", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_float(std::log10(num_arg(a, 0)))};
+    });
+
+    // Trig
+    mfn("sin",  [&num_arg](std::vector<Value> a) -> std::vector<Value> { return {Value::from_float(std::sin(num_arg(a,0)))}; });
+    mfn("cos",  [&num_arg](std::vector<Value> a) -> std::vector<Value> { return {Value::from_float(std::cos(num_arg(a,0)))}; });
+    mfn("tan",  [&num_arg](std::vector<Value> a) -> std::vector<Value> { return {Value::from_float(std::tan(num_arg(a,0)))}; });
+    mfn("asin", [&num_arg](std::vector<Value> a) -> std::vector<Value> { return {Value::from_float(std::asin(num_arg(a,0)))}; });
+    mfn("acos", [&num_arg](std::vector<Value> a) -> std::vector<Value> { return {Value::from_float(std::acos(num_arg(a,0)))}; });
+    mfn("atan", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() >= 2) return {Value::from_float(std::atan2(num_arg(a,0), num_arg(a,1)))};
+        return {Value::from_float(std::atan(num_arg(a,0)))};
+    });
+
+    // Clamp / sign / lerp
+    mfn("clamp", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        double v = num_arg(a,0), lo = num_arg(a,1), hi = num_arg(a,2);
+        return {Value::from_float(v < lo ? lo : v > hi ? hi : v)};
+    });
+    mfn("sign", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        double v = num_arg(a,0);
+        return {Value::from_int(v > 0 ? 1 : v < 0 ? -1 : 0)};
+    });
+    mfn("lerp", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        double lo = num_arg(a,0), hi = num_arg(a,1), t = num_arg(a,2);
+        return {Value::from_float(lo + t * (hi - lo))};
+    });
+
+    // Min / max inside math table (variadic)
+    mfn("max", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty()) return {Value::nil()};
+        double best = a[0].to_float();
+        for (size_t i = 1; i < a.size(); ++i) best = std::max(best, a[i].to_float());
+        return {Value::from_float(best)};
+    });
+    mfn("min", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty()) return {Value::nil()};
+        double best = a[0].to_float();
+        for (size_t i = 1; i < a.size(); ++i) best = std::min(best, a[i].to_float());
+        return {Value::from_float(best)};
+    });
+
+    mfn("rad", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_float(num_arg(a,0) * M_PI / 180.0)};
+    });
+    mfn("deg", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_float(num_arg(a,0) * 180.0 / M_PI)};
+    });
+    mfn("fmod", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_float(std::fmod(num_arg(a,0), num_arg(a,1)))};
+    });
+    mfn("is_nan", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_bool(std::isnan(num_arg(a,0)))};
+    });
+    mfn("is_inf", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_bool(std::isinf(num_arg(a,0)))};
+    });
+
     globals_["math"] = math_tbl;
+
+    // ── string table ───────────────────────────────────────────────────────
+    Value str_tbl = Value::from_table();
+    auto* st = str_tbl.as_table();
+    auto sfn = [&](const std::string& key, NativeFunction::Fn fn) {
+        st->set(key, Value::from_native("string." + key, std::move(fn)));
+    };
+
+    sfn("len", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_int((int64_t)str_arg(a,0).size())};
+    });
+    sfn("sub", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        // sub(s, start, end?) — 0-based, end exclusive
+        std::string s = str_arg(a, 0);
+        int64_t start = a.size() > 1 ? (a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float()) : 0;
+        int64_t len   = (int64_t)s.size();
+        if (start < 0) start = std::max<int64_t>(0, len + start);
+        if (start >= len) return {Value::from_string("")};
+        if (a.size() > 2) {
+            int64_t end = a[2].is_int() ? a[2].as_int() : (int64_t)a[2].to_float();
+            if (end < 0) end = len + end;
+            end = std::min(end, len);
+            return {Value::from_string(s.substr((size_t)start, (size_t)std::max<int64_t>(0, end - start)))};
+        }
+        return {Value::from_string(s.substr((size_t)start))};
+    });
+    sfn("upper", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a, 0);
+        for (auto& c : s) c = (char)std::toupper((unsigned char)c);
+        return {Value::from_string(s)};
+    });
+    sfn("lower", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a, 0);
+        for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+        return {Value::from_string(s)};
+    });
+    sfn("trim", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a, 0);
+        size_t l = s.find_first_not_of(" \t\r\n");
+        size_t r = s.find_last_not_of(" \t\r\n");
+        if (l == std::string::npos) return {Value::from_string("")};
+        return {Value::from_string(s.substr(l, r - l + 1))};
+    });
+    sfn("trim_start", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a, 0);
+        size_t l = s.find_first_not_of(" \t\r\n");
+        return {Value::from_string(l == std::string::npos ? "" : s.substr(l))};
+    });
+    sfn("trim_end", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a, 0);
+        size_t r = s.find_last_not_of(" \t\r\n");
+        return {Value::from_string(r == std::string::npos ? "" : s.substr(0, r + 1))};
+    });
+    sfn("contains", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_bool(str_arg(a,0).find(str_arg(a,1)) != std::string::npos)};
+    });
+    sfn("starts_with", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a,0), p = str_arg(a,1);
+        return {Value::from_bool(s.size() >= p.size() && s.substr(0, p.size()) == p)};
+    });
+    sfn("ends_with", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a,0), p = str_arg(a,1);
+        return {Value::from_bool(s.size() >= p.size() && s.substr(s.size()-p.size()) == p)};
+    });
+    sfn("find", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a,0), p = str_arg(a,1);
+        size_t pos = s.find(p);
+        if (pos == std::string::npos) return {Value::from_int(-1)};
+        return {Value::from_int((int64_t)pos)};
+    });
+    sfn("replace", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a,0), from = str_arg(a,1), to = str_arg(a,2);
+        if (from.empty()) return {Value::from_string(s)};
+        std::string out;
+        size_t pos = 0, found;
+        while ((found = s.find(from, pos)) != std::string::npos) {
+            out += s.substr(pos, found - pos);
+            out += to;
+            pos = found + from.size();
+        }
+        out += s.substr(pos);
+        return {Value::from_string(out)};
+    });
+    sfn("split", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a,0), delim = str_arg(a,1);
+        Value tbl = Value::from_table();
+        auto* t = tbl.as_table();
+        int64_t idx = 0;
+        if (delim.empty()) {
+            for (char c : s) t->set(std::to_string(idx++), Value::from_string(std::string(1,c)));
+        } else {
+            size_t pos = 0, found;
+            while ((found = s.find(delim, pos)) != std::string::npos) {
+                t->set(std::to_string(idx++), Value::from_string(s.substr(pos, found - pos)));
+                pos = found + delim.size();
+            }
+            t->set(std::to_string(idx), Value::from_string(s.substr(pos)));
+        }
+        return {tbl};
+    });
+    sfn("join", [](std::vector<Value> a) -> std::vector<Value> {
+        // join(table, sep)
+        if (a.empty() || !a[0].is_table()) return {Value::from_string("")};
+        std::string sep = a.size() > 1 ? a[1].to_string() : "";
+        auto* t = a[0].as_table();
+        std::string out;
+        bool first = true;
+        int64_t idx = 0;
+        while (true) {
+            Value v = t->get(std::to_string(idx++));
+            if (v.is_nil()) break;
+            if (!first) out += sep;
+            out += v.to_string();
+            first = false;
+        }
+        return {Value::from_string(out)};
+    });
+    sfn("rep", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a,0);
+        int64_t n = a.size() > 1 ? (a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float()) : 0;
+        std::string out;
+        for (int64_t i = 0; i < n; ++i) out += s;
+        return {Value::from_string(out)};
+    });
+    sfn("byte", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a,0);
+        int64_t i = a.size() > 1 ? (a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float()) : 0;
+        if (s.empty() || i < 0 || i >= (int64_t)s.size()) return {Value::nil()};
+        return {Value::from_int((unsigned char)s[(size_t)i])};
+    });
+    sfn("char", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty()) return {Value::from_string("")};
+        int64_t code = a[0].is_int() ? a[0].as_int() : (int64_t)a[0].to_float();
+        return {Value::from_string(std::string(1, (char)(code & 0xFF)))};
+    });
+    sfn("format", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        // printf-style formatting: supports flags, width, precision + d/i/f/g/e/s/%
+        std::string fmt = str_arg(a, 0);
+        std::string out;
+        size_t arg_idx = 1;
+        for (size_t i = 0; i < fmt.size(); ++i) {
+            if (fmt[i] != '%') { out += fmt[i]; continue; }
+            ++i;
+            if (i >= fmt.size()) { out += '%'; break; }
+            if (fmt[i] == '%') { out += '%'; continue; }
+
+            // Collect the full format specifier: [-+ #0]*[0-9]*[.0-9]*[diouxXeEfgGs]
+            std::string spec = "%";
+            while (i < fmt.size() && (fmt[i] == '-' || fmt[i] == '+' ||
+                   fmt[i] == ' ' || fmt[i] == '#' || fmt[i] == '0')) {
+                spec += fmt[i++];
+            }
+            while (i < fmt.size() && fmt[i] >= '0' && fmt[i] <= '9') spec += fmt[i++];
+            if (i < fmt.size() && fmt[i] == '.') {
+                spec += fmt[i++];
+                while (i < fmt.size() && fmt[i] >= '0' && fmt[i] <= '9') spec += fmt[i++];
+            }
+            if (i >= fmt.size()) { out += spec; break; }
+            char conv = fmt[i];
+            spec += conv;
+
+            if (arg_idx >= a.size()) { out += spec; continue; }
+            auto& v = a[arg_idx++];
+            char buf[128];
+            if (conv == 'd' || conv == 'i') {
+                // replace conv with lld
+                spec.back() = 'd';
+                spec.insert(spec.size() - 1, "ll");
+                snprintf(buf, sizeof(buf), spec.c_str(), (long long)v.as_int());
+            } else if (conv == 'f' || conv == 'F' || conv == 'e' || conv == 'E' ||
+                       conv == 'g' || conv == 'G') {
+                snprintf(buf, sizeof(buf), spec.c_str(), v.to_float());
+            } else if (conv == 's') {
+                out += v.to_string(); continue;
+            } else if (conv == 'x' || conv == 'X' || conv == 'o' || conv == 'u') {
+                spec.back() = conv;
+                spec.insert(spec.size() - 1, "ll");
+                snprintf(buf, sizeof(buf), spec.c_str(), (unsigned long long)v.as_int());
+            } else {
+                out += spec; continue;
+            }
+            out += buf;
+        }
+        return {Value::from_string(out)};
+    });
+    sfn("is_empty", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_bool(str_arg(a,0).empty())};
+    });
+    sfn("reverse", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string s = str_arg(a,0);
+        std::reverse(s.begin(), s.end());
+        return {Value::from_string(s)};
+    });
+
+    globals_["string"] = str_tbl;
+
+    // ── table table ────────────────────────────────────────────────────────
+    Value tbl_mod = Value::from_table();
+    auto* tm = tbl_mod.as_table();
+    auto tfn = [&](const std::string& key, NativeFunction::Fn fn) {
+        tm->set(key, Value::from_native("table." + key, std::move(fn)));
+    };
+
+    tfn("len", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::from_int(0)};
+        return {Value::from_int((int64_t)a[0].as_table()->count())};
+    });
+    // push(tbl, val) — appends to numeric sequence (0,1,2,...)
+    tfn("push", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 2 || !a[0].is_table()) return {};
+        auto* t = a[0].as_table();
+        int64_t idx = (int64_t)t->count(); // next index
+        t->set(std::to_string(idx), a[1]);
+        return {};
+    });
+    // pop(tbl) — removes last numeric element
+    tfn("pop", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::nil()};
+        auto* t = a[0].as_table();
+        if (t->count() == 0) return {Value::nil()};
+        int64_t last = (int64_t)t->count() - 1;
+        Value v = t->get(std::to_string(last));
+        t->remove(std::to_string(last));
+        return {v};
+    });
+    // insert(tbl, idx, val)
+    tfn("insert", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 3 || !a[0].is_table()) return {};
+        auto* t = a[0].as_table();
+        int64_t idx = a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float();
+        int64_t n   = (int64_t)t->count();
+        // Shift elements right
+        for (int64_t i = n; i > idx; --i)
+            t->set(std::to_string(i), t->get(std::to_string(i - 1)));
+        t->set(std::to_string(idx), a[2]);
+        return {};
+    });
+    // remove(tbl, idx) — shift left
+    tfn("remove", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::nil()};
+        auto* t = a[0].as_table();
+        int64_t n   = (int64_t)t->count();
+        int64_t idx = a.size() > 1 ? (a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float()) : n - 1;
+        Value removed = t->get(std::to_string(idx));
+        for (int64_t i = idx; i < n - 1; ++i)
+            t->set(std::to_string(i), t->get(std::to_string(i + 1)));
+        t->remove(std::to_string(n - 1));
+        return {removed};
+    });
+    // keys(tbl) → table of key strings
+    tfn("keys", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::from_table()};
+        Value out = Value::from_table();
+        auto* t = a[0].as_table();
+        int64_t idx = 0;
+        t->for_each([&](const std::string& k, const Value&) {
+            out.as_table()->set(std::to_string(idx++), Value::from_string(k));
+        });
+        return {out};
+    });
+    // values(tbl) → table of values
+    tfn("values", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::from_table()};
+        Value out = Value::from_table();
+        auto* t = a[0].as_table();
+        int64_t idx = 0;
+        t->for_each([&](const std::string&, const Value& v) {
+            out.as_table()->set(std::to_string(idx++), v);
+        });
+        return {out};
+    });
+    // contains(tbl, key) → bool
+    tfn("contains", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 2 || !a[0].is_table()) return {Value::from_bool(false)};
+        std::string key = str_arg(a, 1);
+        return {Value::from_bool(!a[0].as_table()->get(key).is_nil())};
+    });
+    // sort(tbl) — sorts numeric sequence in-place
+    tfn("sort", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {};
+        auto* t = a[0].as_table();
+        int64_t n = (int64_t)t->count();
+        std::vector<Value> arr;
+        arr.reserve((size_t)n);
+        for (int64_t i = 0; i < n; ++i) {
+            Value v = t->get(std::to_string(i));
+            if (v.is_nil()) break;
+            arr.push_back(v);
+        }
+        std::sort(arr.begin(), arr.end(), [](const Value& x, const Value& y) {
+            if (x.is_int() && y.is_int()) return x.as_int() < y.as_int();
+            return x.to_float() < y.to_float();
+        });
+        for (int64_t i = 0; i < (int64_t)arr.size(); ++i)
+            t->set(std::to_string(i), arr[(size_t)i]);
+        return {};
+    });
+    // copy(tbl) — shallow copy
+    tfn("copy", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::from_table()};
+        Value out = Value::from_table();
+        a[0].as_table()->for_each([&](const std::string& k, const Value& v) {
+            out.as_table()->set(k, v);
+        });
+        return {out};
+    });
+
+    globals_["table"] = tbl_mod;
+
+    // ── io table ───────────────────────────────────────────────────────────
+    Value io_tbl = Value::from_table();
+    auto* it = io_tbl.as_table();
+    auto ifn = [&](const std::string& key, NativeFunction::Fn fn) {
+        it->set(key, Value::from_native("io." + key, std::move(fn)));
+    };
+
+    ifn("read_file", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string path = str_arg(a, 0);
+        std::ifstream f(path, std::ios::binary);
+        if (!f) return {Value::nil()};
+        std::ostringstream ss; ss << f.rdbuf();
+        return {Value::from_string(ss.str())};
+    });
+    ifn("write_file", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string path = str_arg(a, 0);
+        std::string data = str_arg(a, 1);
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return {Value::from_bool(false)};
+        f << data;
+        return {Value::from_bool(true)};
+    });
+    ifn("append_file", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::string path = str_arg(a, 0);
+        std::string data = str_arg(a, 1);
+        std::ofstream f(path, std::ios::binary | std::ios::app);
+        if (!f) return {Value::from_bool(false)};
+        f << data;
+        return {Value::from_bool(true)};
+    });
+    ifn("read_line", [](std::vector<Value> /*a*/) -> std::vector<Value> {
+        std::string line;
+        if (!std::getline(std::cin, line)) return {Value::nil()};
+        return {Value::from_string(line)};
+    });
+    ifn("print_err", [](std::vector<Value> a) -> std::vector<Value> {
+        for (auto& v : a) std::cerr << v.to_string();
+        std::cerr << '\n';
+        return {};
+    });
+    ifn("exists", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::ifstream f(str_arg(a, 0));
+        return {Value::from_bool(f.good())};
+    });
+
+    globals_["io"] = io_tbl;
 }
 
 // ===========================================================================
@@ -340,7 +825,8 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
     }
 
     if (callee.is_closure()) {
-        Proto* proto = callee.as_closure()->proto;
+        ZClosure* cl = callee.as_closure();
+        Proto* proto = cl->proto;
         if (frames_.size() >= MAX_FRAMES) {
             runtime_error("stack overflow");
         }
@@ -348,6 +834,7 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
         frame.proto    = proto;
         frame.pc       = 0;
         frame.base_reg = abs_base + 1; // args start at abs_base+1
+        frame.closure  = cl;
         frames_.push_back(frame);
         // The callee's registers start at abs_base+1.
         // Parameters are already in abs_base+1..abs_base+num_args.
@@ -395,6 +882,7 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
                 frame.proto    = init_proto;
                 frame.pc       = 0;
                 frame.base_reg = abs_base + 1; // self is reg 0 inside init
+                frame.closure  = init_fn.as_closure();
                 frames_.push_back(frame);
                 // Fill missing params with nil
                 for (uint8_t i = (uint8_t)(num_args + 1);
@@ -441,12 +929,14 @@ bool VM::call_method(uint8_t base_reg_offset, uint8_t user_args, uint8_t num_res
     }
 
     if (callee.is_closure()) {
-        Proto* proto = callee.as_closure()->proto;
+        ZClosure* cl = callee.as_closure();
+        Proto* proto = cl->proto;
         if (frames_.size() >= MAX_FRAMES) runtime_error("stack overflow");
         CallFrame frame;
         frame.proto    = proto;
         frame.pc       = 0;
         frame.base_reg = self_abs;  // self at R[0], user_args at R[1..user_args]
+        frame.closure  = cl;
         frames_.push_back(frame);
         // Fill missing params with nil (param 0 = self already in place)
         for (uint8_t i = user_args + 1; i < proto->num_params; ++i)
@@ -465,6 +955,33 @@ bool VM::call_method(uint8_t base_reg_offset, uint8_t user_args, uint8_t num_res
 
     runtime_error("attempt to call non-callable value (type: " + callee.type_name() + ")");
     return false;
+}
+
+// ===========================================================================
+// Upvalue helpers
+// ===========================================================================
+std::shared_ptr<Value> VM::capture_reg(uint16_t abs_reg) {
+    auto it = open_upvals_.find(abs_reg);
+    if (it != open_upvals_.end()) {
+        // Sync cell to current register value before returning
+        *it->second = regs_[abs_reg];
+        return it->second;
+    }
+    auto cell = std::make_shared<Value>(regs_[abs_reg]);
+    open_upvals_[abs_reg] = cell;
+    return cell;
+}
+
+void VM::close_upvals_above(uint8_t base) {
+    // Snapshot current register values into cells, then remove from open set.
+    for (auto it = open_upvals_.begin(); it != open_upvals_.end(); ) {
+        if (it->first >= base) {
+            // value already snapshotted at capture/sync time; just remove
+            it = open_upvals_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 // ===========================================================================
@@ -692,7 +1209,48 @@ bool VM::run() {
                     // Bx = index into proto->protos
                     if (Bx >= proto->protos.size())
                         runtime_error("invalid closure index");
-                    R(A) = Value::from_closure(proto->protos[Bx]);
+                    Proto* fn_proto = proto->protos[Bx];
+                    R(A) = Value::from_closure(fn_proto);
+                    ZClosure* cl = R(A).as_closure();
+                    // Read one pseudo-instruction per upvalue in fn_proto->upvalues.
+                    // Op::Move     A=0 B=reg  → capture local register from enclosing frame
+                    // Op::GetUpval A=0 B=idx  → inherit upvalue from enclosing closure
+                    cl->upvalues.resize(fn_proto->upvalues.size());
+                    for (size_t uvi = 0; uvi < fn_proto->upvalues.size(); ++uvi) {
+                        uint32_t pseudo = proto->code[pc++];
+                        Op pseudo_op    = instr_op(pseudo);
+                        uint8_t  pseudo_B = instr_B(pseudo);
+                        if (pseudo_op == Op::Move) {
+                            // capture local: create/reuse a shared cell for this reg
+                            cl->upvalues[uvi] = capture_reg(
+                                (uint16_t)(base_reg + pseudo_B));
+                        } else {
+                            // inherit upvalue from enclosing closure
+                            CallFrame& cf = frames_.back();
+                            if (cf.closure && pseudo_B < cf.closure->upvalues.size())
+                                cl->upvalues[uvi] = cf.closure->upvalues[pseudo_B];
+                            else
+                                cl->upvalues[uvi] = std::make_shared<Value>(Value::nil());
+                        }
+                    }
+                    break;
+                }
+
+                case Op::GetUpval: {
+                    // A=dest, B=upvalue index
+                    ZClosure* cl = frames_.back().closure;
+                    if (cl && B < cl->upvalues.size())
+                        R(A) = *cl->upvalues[B];
+                    else
+                        R(A) = Value::nil();
+                    break;
+                }
+
+                case Op::SetUpval: {
+                    // A=src, B=upvalue index
+                    ZClosure* cl = frames_.back().closure;
+                    if (cl && B < cl->upvalues.size())
+                        *cl->upvalues[B] = R(A);
                     break;
                 }
 
@@ -723,6 +1281,7 @@ bool VM::run() {
                     // A=first_result_reg, B=count (0 = return nil)
                     Value result = (B > 0) ? R(A) : Value::nil();
                     uint8_t this_base = base_reg;
+                    close_upvals_above(this_base);
                     frames_.pop_back();
                     frame_changed = true;
                     // Now frame/proto are dangling — do not access them again.

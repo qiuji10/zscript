@@ -78,6 +78,8 @@ const char* op_name(Op op) {
         case Op::Move:      return "MOVE";
         case Op::GetGlobal: return "GET_GLOBAL";
         case Op::SetGlobal: return "SET_GLOBAL";
+        case Op::GetUpval:  return "GET_UPVAL";
+        case Op::SetUpval:  return "SET_UPVAL";
         case Op::NewTable:  return "NEW_TABLE";
         case Op::GetField:  return "GET_FIELD";
         case Op::SetField:  return "SET_FIELD";

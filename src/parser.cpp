@@ -513,6 +513,28 @@ StmtPtr Parser::parse_stmt() {
         case TokenKind::KwWhile:  return parse_while_stmt();
         case TokenKind::KwFor:    return parse_for_stmt();
         case TokenKind::At:       return parse_engine_block_stmt();
+        case TokenKind::KwFn: {
+            // Named inner function: fn name(params) { body }
+            // Desugar to: var name = fn(params) { body }
+            if (peek(1).kind == TokenKind::Ident) {
+                auto s    = std::make_unique<VarDeclStmt>();
+                s->loc    = cur_loc();
+                s->is_let = false;
+                advance(); // consume 'fn'
+                s->name   = advance().lexeme; // consume name
+                // Parse the rest as an anonymous lambda body
+                auto lam  = std::make_unique<LambdaExpr>();
+                lam->loc  = s->loc;
+                expect(TokenKind::LParen, "expected '('");
+                if (!check(TokenKind::RParen)) lam->params = parse_param_list();
+                expect(TokenKind::RParen, "expected ')'");
+                if (match(TokenKind::Arrow)) lam->return_type = parse_type();
+                lam->body = parse_block();
+                s->init   = std::move(lam);
+                return s;
+            }
+            break; // anonymous fn-expression statement — fall through
+        }
         default:
             break;
     }

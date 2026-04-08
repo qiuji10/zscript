@@ -26,9 +26,13 @@ enum class Op : uint8_t {
     LoadK,        // A Bx            R[A] = K[Bx]
     Move,         // A B             R[A] = R[B]
 
-    // --- Globals / upvalues (Phase 3+) ---
+    // --- Globals ---
     GetGlobal,    // A Bx            R[A] = Globals[K[Bx]]
     SetGlobal,    // A Bx            Globals[K[Bx]] = R[A]
+
+    // --- Upvalues ---
+    GetUpval,     // A B             R[A] = upvalues[B]
+    SetUpval,     // A B             upvalues[B] = R[A]
 
     // --- Tables ---
     NewTable,     // A               R[A] = {}
@@ -130,6 +134,13 @@ inline int32_t  instr_sBx(uint32_t i){ return int32_t(instr_Bx(i)) - BIAS_SBX; }
 // ---------------------------------------------------------------------------
 struct Value; // forward — defined in value.h
 
+// Upvalue descriptor: how to capture a variable when creating a closure.
+struct UpvalDesc {
+    std::string name;
+    bool        is_local = true; // true = from enclosing fn's register; false = from enclosing closure's upvalue
+    uint8_t     idx      = 0;   // register index (is_local) or upvalue index (!is_local)
+};
+
 struct Proto {
     std::string name;         // debug name
     uint8_t     num_params = 0;
@@ -139,6 +150,7 @@ struct Proto {
     std::vector<uint32_t>    code;       // instructions
     std::vector<Value>       constants;  // constant pool (Value defined in value.h)
     std::vector<Proto*>      protos;     // nested function prototypes (owned by Chunk)
+    std::vector<UpvalDesc>   upvalues;   // upvalue descriptors (populated by compiler)
 
     // Debug info
     std::vector<uint32_t>    lines;      // code[i] was generated from line lines[i]

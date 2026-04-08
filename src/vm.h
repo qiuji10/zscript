@@ -24,9 +24,10 @@ struct RuntimeError {
 // CallFrame
 // ---------------------------------------------------------------------------
 struct CallFrame {
-    Proto*   proto    = nullptr;
-    size_t   pc       = 0;
-    uint8_t  base_reg = 0;
+    Proto*    proto    = nullptr;
+    size_t    pc       = 0;
+    uint8_t   base_reg = 0;
+    ZClosure* closure  = nullptr; // nullptr for native/top-level frames
 };
 
 // ---------------------------------------------------------------------------
@@ -90,6 +91,16 @@ private:
     std::vector<CallFrame> frames_;
 
     CallFrame& cur_frame() { return frames_.back(); }
+
+    // Open upvalue cells: absolute register index → shared cell.
+    // When a closure captures a local that is still on the stack, both the
+    // register and the shared_ptr cell point at the same Value.  When the
+    // enclosing scope exits we "close" the upvalue by leaving the value only
+    // in the cell.
+    std::unordered_map<uint16_t, std::shared_ptr<Value>> open_upvals_;
+
+    std::shared_ptr<Value> capture_reg(uint16_t abs_reg);
+    void close_upvals_above(uint8_t base); // called when a frame returns
 
     std::unordered_map<std::string, Value> globals_;
     EngineMode    engine_ = EngineMode::None;

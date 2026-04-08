@@ -91,6 +91,21 @@ bool Compiler::local_is_let(const std::string& name) const {
     return false;
 }
 
+int Compiler::resolve_upvalue(FnState* fn, const std::string& name) {
+    if (!fn->enclosing) return -1;
+    // Is it a local in the immediately enclosing function?
+    auto& enc_locals = fn->enclosing->locals;
+    for (int i = (int)enc_locals.size() - 1; i >= 0; --i) {
+        if (enc_locals[i].name == name)
+            return fn->add_upvalue(name, /*is_local=*/true, enc_locals[i].reg);
+    }
+    // Otherwise, is it an upvalue of the enclosing function?
+    int upval = resolve_upvalue(fn->enclosing, name);
+    if (upval >= 0)
+        return fn->add_upvalue(name, /*is_local=*/false, (uint8_t)upval);
+    return -1;
+}
+
 // ===========================================================================
 // Constants
 // ===========================================================================
@@ -243,6 +258,12 @@ void Compiler::compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line
     uint16_t nested_idx = (uint16_t)(cur_fn_->proto->protos.size() - 1);
 
     emit_ABx(Op::Closure, dest_reg, nested_idx, line);
+    for (auto& uv : fn_proto->upvalues) {
+        if (uv.is_local)
+            emit_ABC(Op::Move,     0, uv.idx, 0, line);
+        else
+            emit_ABC(Op::GetUpval, 0, uv.idx, 0, line);
+    }
 }
 
 // ===========================================================================
@@ -609,6 +630,13 @@ uint8_t Compiler::compile_ident(const IdentExpr& e, std::optional<uint8_t> dest)
         }
         return src;
     }
+    // Upvalue?
+    int upval = resolve_upvalue(cur_fn_, e.name);
+    if (upval >= 0) {
+        uint8_t reg = dest ? *dest : alloc_reg();
+        emit_ABC(Op::GetUpval, reg, (uint8_t)upval, 0, e.loc.line);
+        return reg;
+    }
     // Global
     uint8_t reg = dest ? *dest : alloc_reg();
     uint16_t k = str_const(e.name);
@@ -697,6 +725,12 @@ uint8_t Compiler::compile_assign(const AssignExpr& e, std::optional<uint8_t> des
             }
             if ((uint8_t)local != val_reg)
                 emit_ABC(Op::Move, (uint8_t)local, val_reg, 0, e.loc.line);
+            return into(val_reg, dest);
+        }
+        // Upvalue assignment?
+        int upval = resolve_upvalue(cur_fn_, id->name);
+        if (upval >= 0) {
+            emit_ABC(Op::SetUpval, val_reg, (uint8_t)upval, 0, e.loc.line);
             return into(val_reg, dest);
         }
         // Global assignment
@@ -900,6 +934,17 @@ uint8_t Compiler::compile_lambda(const LambdaExpr& e, std::optional<uint8_t> des
     cur_fn_->proto->protos.push_back(fn_proto);
     uint16_t nested_idx = (uint16_t)(cur_fn_->proto->protos.size() - 1);
     emit_ABx(Op::Closure, reg, nested_idx, e.loc.line);
+
+    // Emit one pseudo-instruction per upvalue so the VM can populate the closure.
+    // Op::Move  A=0 B=reg  → capture local `reg` from enclosing frame
+    // Op::GetUpval A=0 B=upval_idx → inherit upvalue from enclosing closure
+    for (auto& uv : fn_proto->upvalues) {
+        if (uv.is_local)
+            emit_ABC(Op::Move,     0, uv.idx, 0, e.loc.line);
+        else
+            emit_ABC(Op::GetUpval, 0, uv.idx, 0, e.loc.line);
+    }
+
     return reg;
 }
 

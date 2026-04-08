@@ -39,18 +39,21 @@ struct ZTable : GcObject {
     std::unordered_map<std::string, Value>     hash;   // string keys
     // (other key types can be added for Phase 3)
 
-    Value get(const std::string& key) const;
-    void  set(const std::string& key, Value val);
-    Value get_index(int64_t idx) const;
-    void  set_index(int64_t idx, Value val);
+    Value  get(const std::string& key) const;
+    void   set(const std::string& key, Value val);
+    Value  get_index(int64_t idx) const;
+    void   set_index(int64_t idx, Value val);
+    size_t count() const;
+    void   remove(const std::string& key);
+    template<typename Fn> void for_each(Fn&& fn) const;
 };
 
 // ---------------------------------------------------------------------------
-// Closure — a Proto + captured upvalues (upvalues are Phase 3; slot here)
+// Closure — a Proto + captured upvalue cells (shared so mutations are visible across closures)
 // ---------------------------------------------------------------------------
 struct ZClosure : GcObject {
-    Proto*             proto = nullptr;
-    // upvalues: Phase 3
+    Proto* proto = nullptr;
+    std::vector<std::shared_ptr<Value>> upvalues;
     explicit ZClosure(Proto* p) : proto(p) {}
 };
 
@@ -195,6 +198,22 @@ inline void ZTable::set_index(int64_t idx, Value val) {
     if (idx >= 0) {
         if ((size_t)idx >= array.size()) array.resize((size_t)idx + 1);
         array[(size_t)idx] = std::move(val);
+    }
+}
+
+inline size_t ZTable::count() const {
+    return hash.size() + array.size();
+}
+
+inline void ZTable::remove(const std::string& key) {
+    hash.erase(key);
+}
+
+template<typename Fn>
+inline void ZTable::for_each(Fn&& fn) const {
+    for (auto& [k, v] : hash) fn(k, v);
+    for (size_t i = 0; i < array.size(); ++i) {
+        if (!array[i].is_nil()) fn(std::to_string(i), array[i]);
     }
 }
 

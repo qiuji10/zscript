@@ -45,8 +45,22 @@ private:
         int                  scope    = 0;   // current scope depth
         std::vector<Local>   locals;
 
-        // Patch-lists for break/continue (Phase 3+): placeholder
-        // Jump back-patch stacks
+        // Upvalue tracking — parallel to proto->upvalues
+        // add_upvalue returns the index into proto->upvalues
+        int add_upvalue(const std::string& name, bool is_local, uint8_t idx) {
+            for (int i = 0; i < (int)proto->upvalues.size(); ++i) {
+                auto& u = proto->upvalues[i];
+                if (u.is_local == is_local && u.idx == idx) return i;
+            }
+            UpvalDesc d;
+            d.name     = name;
+            d.is_local = is_local;
+            d.idx      = idx;
+            proto->upvalues.push_back(d);
+            return (int)proto->upvalues.size() - 1;
+        }
+
+        // Patch-lists for break/continue
         struct PatchSlot { size_t instr_idx; };
         std::vector<std::vector<PatchSlot>> break_patches;
 
@@ -72,8 +86,10 @@ private:
     // Local variable management
     // =========================================================================
     void    define_local(const std::string& name, uint8_t reg, bool is_let);
-    // Returns register of a local, or -1 if not found
+    // Returns register of a local in the *current* function, or -1
     int     resolve_local(const std::string& name) const;
+    // Resolve upvalue — walks enclosing chain. Returns upvalue index or -1.
+    int     resolve_upvalue(FnState* fn, const std::string& name);
     bool    local_is_let(const std::string& name) const;
 
     // =========================================================================

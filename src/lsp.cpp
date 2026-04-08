@@ -285,24 +285,33 @@ void LspServer::on_completion(const Json& id, const Json& params) {
             }
         }
 
-        // Stdlib builtins with detail strings (LSP kind 3 = Function)
-        struct Builtin { const char* name; const char* detail; };
+        // Stdlib globals — functions and module tables
+        struct Builtin { const char* name; const char* detail; int kind; };
         static const Builtin builtins[] = {
-            {"log",       "fn log(...) -> Nil"},
-            {"print",     "fn print(...) -> Nil"},
-            {"tostring",  "fn tostring(v: Any) -> String"},
-            {"tonumber",  "fn tonumber(v: Any) -> Int|Float|Nil"},
-            {"type",      "fn type(v: Any) -> String"},
-            {"assert",    "fn assert(cond: Any, msg: String?) -> Nil"},
-            {"max",       "fn max(a: Any, b: Any) -> Any"},
-            {"min",       "fn min(a: Any, b: Any) -> Any"},
-            {"math",      "math  — table: floor, ceil, sqrt, abs"},
+            // global functions  (kind 3 = Function)
+            {"log",      "fn log(...) -> Nil",                   3},
+            {"print",    "fn print(...) -> Nil",                  3},
+            {"tostring", "fn tostring(v: Any) -> String",         3},
+            {"tonumber", "fn tonumber(v: Any) -> Int|Float|Nil",  3},
+            {"tobool",   "fn tobool(v: Any) -> Bool",             3},
+            {"type",     "fn type(v: Any) -> String",             3},
+            {"len",      "fn len(v: String|Table) -> Int",        3},
+            {"assert",   "fn assert(cond, msg?: String) -> Any",  3},
+            {"error",    "fn error(msg: String) -> Never",        3},
+            {"max",      "fn max(...) -> Any",                    3},
+            {"min",      "fn min(...) -> Any",                    3},
+            {"range",    "fn range(stop) | range(start,stop,step?) -> Table", 3},
+            // module tables  (kind 9 = Module)
+            {"math",     "math — floor ceil round sqrt pow exp log sin cos tan clamp lerp sign rad deg pi huge", 9},
+            {"string",   "string — len sub upper lower trim contains starts_with ends_with find replace split join format rep byte char", 9},
+            {"table",    "table — len push pop insert remove sort copy keys values contains", 9},
+            {"io",       "io — read_file write_file append_file read_line print_err exists", 9},
         };
         for (auto& b : builtins) {
             if (prefix.empty() || std::string(b.name).rfind(prefix, 0) == 0) {
                 Json item = Json::object();
                 item["label"]      = std::string(b.name);
-                item["kind"]       = 3; // Function
+                item["kind"]       = b.kind;
                 item["insertText"] = std::string(b.name);
                 item["detail"]     = std::string(b.detail);
                 items.push_back(std::move(item));
@@ -672,6 +681,92 @@ SymIndex LspServer::build_index(const std::string& text) {
 
 SymIndex LspServer::build_index_from_prog(const Program& prog) {
     SymIndex idx;
+
+    // Seed stdlib module members so dot-completion works on math.X, string.X, etc.
+    auto seed = [&](const std::string& mod, SymInfo::Kind k,
+                    std::initializer_list<std::pair<const char*, const char*>> members) {
+        auto& list = idx.members[mod];
+        for (auto& [name, detail] : members) {
+            SymInfo s;
+            s.kind   = k;
+            s.name   = name;
+            s.owner  = mod;
+            s.detail = detail;
+            list.push_back(s);
+        }
+    };
+    seed("math", SymInfo::Kind::Method, {
+        {"pi",     "Float — 3.14159…"},
+        {"huge",   "Float — infinity"},
+        {"inf",    "Float — infinity"},
+        {"floor",  "fn floor(x: Float) -> Int"},
+        {"ceil",   "fn ceil(x: Float) -> Int"},
+        {"round",  "fn round(x: Float) -> Int"},
+        {"abs",    "fn abs(x) -> Number"},
+        {"sqrt",   "fn sqrt(x: Float) -> Float"},
+        {"pow",    "fn pow(base, exp: Float) -> Float"},
+        {"exp",    "fn exp(x: Float) -> Float"},
+        {"log",    "fn log(x, base?: Float) -> Float"},
+        {"log10",  "fn log10(x: Float) -> Float"},
+        {"sin",    "fn sin(x: Float) -> Float"},
+        {"cos",    "fn cos(x: Float) -> Float"},
+        {"tan",    "fn tan(x: Float) -> Float"},
+        {"asin",   "fn asin(x: Float) -> Float"},
+        {"acos",   "fn acos(x: Float) -> Float"},
+        {"atan",   "fn atan(x, y?: Float) -> Float"},
+        {"clamp",  "fn clamp(v, lo, hi: Float) -> Float"},
+        {"lerp",   "fn lerp(lo, hi, t: Float) -> Float"},
+        {"sign",   "fn sign(x: Float) -> Int"},
+        {"rad",    "fn rad(deg: Float) -> Float"},
+        {"deg",    "fn deg(rad: Float) -> Float"},
+        {"min",    "fn min(...) -> Float"},
+        {"max",    "fn max(...) -> Float"},
+        {"fmod",   "fn fmod(x, y: Float) -> Float"},
+        {"is_nan", "fn is_nan(x: Float) -> Bool"},
+        {"is_inf", "fn is_inf(x: Float) -> Bool"},
+    });
+    seed("string", SymInfo::Kind::Method, {
+        {"len",         "fn len(s: String) -> Int"},
+        {"sub",         "fn sub(s: String, start: Int, end?: Int) -> String"},
+        {"upper",       "fn upper(s: String) -> String"},
+        {"lower",       "fn lower(s: String) -> String"},
+        {"trim",        "fn trim(s: String) -> String"},
+        {"trim_start",  "fn trim_start(s: String) -> String"},
+        {"trim_end",    "fn trim_end(s: String) -> String"},
+        {"contains",    "fn contains(s, sub: String) -> Bool"},
+        {"starts_with", "fn starts_with(s, prefix: String) -> Bool"},
+        {"ends_with",   "fn ends_with(s, suffix: String) -> Bool"},
+        {"find",        "fn find(s, pattern: String) -> Int"},
+        {"replace",     "fn replace(s, from, to: String) -> String"},
+        {"split",       "fn split(s, delim: String) -> Table"},
+        {"join",        "fn join(tbl: Table, sep: String) -> String"},
+        {"rep",         "fn rep(s: String, n: Int) -> String"},
+        {"byte",        "fn byte(s: String, i: Int) -> Int"},
+        {"char",        "fn char(code: Int) -> String"},
+        {"format",      "fn format(fmt: String, ...) -> String"},
+        {"is_empty",    "fn is_empty(s: String) -> Bool"},
+        {"reverse",     "fn reverse(s: String) -> String"},
+    });
+    seed("table", SymInfo::Kind::Method, {
+        {"len",      "fn len(t: Table) -> Int"},
+        {"push",     "fn push(t: Table, val: Any) -> Nil"},
+        {"pop",      "fn pop(t: Table) -> Any"},
+        {"insert",   "fn insert(t: Table, idx: Int, val: Any) -> Nil"},
+        {"remove",   "fn remove(t: Table, idx?: Int) -> Any"},
+        {"sort",     "fn sort(t: Table) -> Nil"},
+        {"copy",     "fn copy(t: Table) -> Table"},
+        {"keys",     "fn keys(t: Table) -> Table"},
+        {"values",   "fn values(t: Table) -> Table"},
+        {"contains", "fn contains(t: Table, key: String) -> Bool"},
+    });
+    seed("io", SymInfo::Kind::Method, {
+        {"read_file",   "fn read_file(path: String) -> String|Nil"},
+        {"write_file",  "fn write_file(path: String, data: String) -> Bool"},
+        {"append_file", "fn append_file(path: String, data: String) -> Bool"},
+        {"read_line",   "fn read_line() -> String|Nil"},
+        {"print_err",   "fn print_err(...) -> Nil"},
+        {"exists",      "fn exists(path: String) -> Bool"},
+    });
 
     for (auto& decl : prog.decls) {
         // Top-level function
