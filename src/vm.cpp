@@ -1137,6 +1137,22 @@ bool VM::run() {
                     R(A) = Value::from_table();
                     break;
 
+                case Op::Inherit: {
+                    // A = child table, B = parent table
+                    // Copy all hash entries from parent into child (skip __class__ and __base__)
+                    Value& child  = R(A);
+                    Value& parent = R(B);
+                    if (child.is_table() && parent.is_table()) {
+                        auto* ct = child.as_table();
+                        auto* pt = parent.as_table();
+                        for (auto& [k, v] : pt->hash) {
+                            if (k != "__class__" && k != "__base__")
+                                ct->set(k, v);
+                        }
+                    }
+                    break;
+                }
+
                 case Op::GetField: {
                     // Encoding: A=dest, upper8(Bx)=obj_reg, lower8(Bx)=name_k
                     uint8_t  obj_r  = (uint8_t)(Bx >> 8);

@@ -81,6 +81,7 @@ const char* op_name(Op op) {
         case Op::GetUpval:  return "GET_UPVAL";
         case Op::SetUpval:  return "SET_UPVAL";
         case Op::NewTable:  return "NEW_TABLE";
+        case Op::Inherit:   return "INHERIT";
         case Op::GetField:  return "GET_FIELD";
         case Op::SetField:  return "SET_FIELD";
         case Op::GetIndex:  return "GET_INDEX";

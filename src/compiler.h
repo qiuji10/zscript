@@ -181,6 +181,8 @@ private:
 
     // If non-empty, we are compiling a class method and self is in reg 0.
     std::string current_class_;
+    // If non-empty, the current class has a parent (set while compiling methods).
+    std::string current_base_class_;
 };
 
 } // namespace zscript

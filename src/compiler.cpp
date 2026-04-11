@@ -302,6 +302,19 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
     uint8_t tbl_reg = alloc_reg();
     emit_ABC(Op::NewTable, tbl_reg, 0, 0, line);
 
+    // Inheritance: copy base class methods into this prototype, then own methods override.
+    if (cls.base) {
+        uint8_t base_reg = alloc_reg();
+        uint16_t base_name_k = str_const(*cls.base);
+        emit_ABx(Op::GetGlobal, base_reg, base_name_k, line);
+        emit_ABC(Op::Inherit, tbl_reg, base_reg, 0, line);
+        // Store __base__ so super calls can find the parent prototype.
+        uint16_t base_key_k = str_const("__base__");
+        emit_ABx(Op::SetField, tbl_reg,
+                 (uint16_t)((base_key_k << 8) | base_reg), line);
+        free_reg(base_reg);
+    }
+
     // Compile each method with `self` injected as first parameter.
     for (auto& member : cls.members) {
         auto* fn = dynamic_cast<const FnDecl*>(member.get());
@@ -315,7 +328,8 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
         child_fs.enclosing = cur_fn_;
         FnState* prev  = cur_fn_;
         cur_fn_        = &child_fs;
-        current_class_ = cls.name;
+        current_class_      = cls.name;
+        current_base_class_ = cls.base.value_or("");
 
         push_scope();
         // Register 0 = self
@@ -333,8 +347,9 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
         pop_scope();
 
         fn_proto->max_regs = child_fs.max_reg;
-        cur_fn_        = prev;
-        current_class_ = "";
+        cur_fn_             = prev;
+        current_class_      = "";
+        current_base_class_ = "";
 
         // Register in parent proto's nested list and emit Closure
         cur_fn_->proto->protos.push_back(fn_proto);
@@ -993,6 +1008,13 @@ uint8_t Compiler::compile_lit(const LitExpr& e, std::optional<uint8_t> dest) {
 }
 
 uint8_t Compiler::compile_ident(const IdentExpr& e, std::optional<uint8_t> dest) {
+    // 'super' refers to the parent class prototype
+    if (e.name == "super" && !current_base_class_.empty()) {
+        uint8_t reg = dest ? *dest : alloc_reg();
+        uint16_t k = str_const(current_base_class_);
+        emit_ABx(Op::GetGlobal, reg, k, e.loc.line);
+        return reg;
+    }
     int local = resolve_local(e.name);
     if (local >= 0) {
         uint8_t src = (uint8_t)local;
@@ -1288,23 +1310,45 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
         if (field->access == FieldExpr::Access::Dot ||
             field->access == FieldExpr::Access::Safe) {
             bool is_safe = (field->access == FieldExpr::Access::Safe);
+
+            // Detect super.method(args) — fetch method from parent prototype but
+            // use current self (reg 0) as the receiver, not the parent table.
+            bool is_super = false;
+            if (auto* id = dynamic_cast<const IdentExpr*>(field->object.get()))
+                is_super = (id->name == "super" && !current_base_class_.empty());
+
             uint8_t base  = cur_reg();
             uint8_t m_reg = alloc_reg(); // base+0 = method
             uint8_t s_reg = alloc_reg(); // base+1 = self (obj)
-            compile_expr(*field->object, s_reg);
 
             size_t jmp_nil = 0, jmp_end = 0;
-            if (is_safe) {
-                uint8_t cmp_reg = alloc_reg();
-                emit_ABx(Op::LoadNil, cmp_reg, 0, field->loc.line);
-                emit_ABC(Op::Eq, cmp_reg, s_reg, cmp_reg, field->loc.line);
-                jmp_nil = emit_jump(Op::JumpTrue, cmp_reg, field->loc.line);
-                free_reg(cmp_reg);
+
+            if (is_super) {
+                // self = current frame's self (register 0)
+                int self_local = resolve_local("self");
+                emit_ABC(Op::Move, s_reg, (uint8_t)self_local, 0, field->loc.line);
+                // fetch method from parent prototype
+                uint8_t cls_reg = alloc_reg();
+                emit_ABx(Op::GetGlobal, cls_reg,
+                         str_const(current_base_class_), field->loc.line);
+                uint16_t nk = str_const(field->field);
+                emit_ABx(Op::GetField, m_reg,
+                         (uint16_t)((cls_reg << 8) | nk), field->loc.line);
+                free_reg(cls_reg);
+            } else {
+                compile_expr(*field->object, s_reg);
+                if (is_safe) {
+                    uint8_t cmp_reg = alloc_reg();
+                    emit_ABx(Op::LoadNil, cmp_reg, 0, field->loc.line);
+                    emit_ABC(Op::Eq, cmp_reg, s_reg, cmp_reg, field->loc.line);
+                    jmp_nil = emit_jump(Op::JumpTrue, cmp_reg, field->loc.line);
+                    free_reg(cmp_reg);
+                }
+                uint16_t nk = str_const(field->field);
+                emit_ABx(Op::GetField, m_reg,
+                         (uint16_t)((s_reg << 8) | nk), field->loc.line);
             }
 
-            uint16_t nk = str_const(field->field);
-            emit_ABx(Op::GetField, m_reg,
-                     (uint16_t)((s_reg << 8) | nk), field->loc.line);
             // Reset next_reg so user-args pack tightly after self slot.
             cur_fn_->next_reg = base + 2;
             for (auto& arg : e.args) {

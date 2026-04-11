@@ -36,6 +36,7 @@ enum class Op : uint8_t {
 
     // --- Tables ---
     NewTable,     // A               R[A] = {}
+    Inherit,      // A B             copy all methods from R[B] (parent) into R[A] (child table)
     GetField,     // A B Bx          R[A] = R[B][K[Bx]]
     SetField,     // A B Bx          R[A][K[Bx]] = R[B]
     GetIndex,     // A B C           R[A] = R[B][R[C]]
