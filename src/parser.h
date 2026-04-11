@@ -60,6 +60,7 @@ private:
     // ---- statements ----
     StmtPtr parse_stmt();
     StmtPtr parse_var_decl_stmt();
+    StmtPtr parse_destructure_stmt(bool is_let, bool is_global);
     StmtPtr parse_return_stmt();
     StmtPtr parse_if_stmt();
     StmtPtr parse_while_stmt();

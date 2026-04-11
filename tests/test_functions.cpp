@@ -126,3 +126,115 @@ TEST_CASE("caller requests fewer values than returned", "[functions][multi_retur
     )"));
     CHECK(c.g("a").as_int() == 10);
 }
+
+// ---------------------------------------------------------------------------
+// Array destructuring
+// ---------------------------------------------------------------------------
+
+TEST_CASE("array destructuring at top level", "[functions][destructure]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let [a, b, cc] = [10, 20, 30]
+    )"));
+    CHECK(c.g("a").as_int()  == 10);
+    CHECK(c.g("b").as_int()  == 20);
+    CHECK(c.g("cc").as_int() == 30);
+}
+
+TEST_CASE("array destructuring inside function", "[functions][destructure]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn test() {
+            let [x, y] = [100, 200]
+            return x + y
+        }
+        let r = test()
+    )"));
+    CHECK(c.g("r").as_int() == 300);
+}
+
+TEST_CASE("array destructuring rest element", "[functions][destructure]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let [head, ...tail] = [1, 2, 3, 4, 5]
+        var h = head
+        var n = #tail
+        var last = tail[3]
+    )"));
+    CHECK(c.g("h").as_int()    == 1);
+    CHECK(c.g("n").as_int()    == 4);
+    CHECK(c.g("last").as_int() == 5);
+}
+
+TEST_CASE("array destructuring with function return", "[functions][destructure]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn coords() { return [3, 7] }
+        let [x, y] = coords()
+        var rx = x
+        var ry = y
+    )"));
+    CHECK(c.g("rx").as_int() == 3);
+    CHECK(c.g("ry").as_int() == 7);
+}
+
+TEST_CASE("array destructuring partial (fewer bindings than elements)", "[functions][destructure]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let [first, second] = [10, 20, 30, 40]
+        var a = first
+        var b = second
+    )"));
+    CHECK(c.g("a").as_int() == 10);
+    CHECK(c.g("b").as_int() == 20);
+}
+
+// ---------------------------------------------------------------------------
+// Table destructuring
+// ---------------------------------------------------------------------------
+
+TEST_CASE("table destructuring at top level", "[functions][destructure]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let {x, y} = {x: 5, y: 10}
+    )"));
+    CHECK(c.g("x").as_int() == 5);
+    CHECK(c.g("y").as_int() == 10);
+}
+
+TEST_CASE("table destructuring with rename", "[functions][destructure]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let {name: n, age: a} = {name: "Alice", age: 30}
+    )"));
+    CHECK(c.g("n").as_string() == "Alice");
+    CHECK(c.g("a").as_int()    == 30);
+}
+
+TEST_CASE("table destructuring inside function", "[functions][destructure]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn get_point() { return {x: 3, y: 4} }
+        fn dist() {
+            let {x, y} = get_point()
+            return x * x + y * y
+        }
+        let r = dist()
+    )"));
+    CHECK(c.g("r").as_int() == 25);
+}
+
+TEST_CASE("table destructuring from class instance", "[functions][destructure]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Vec {
+            fn init(x, y) { self.x = x  self.y = y }
+        }
+        let v = Vec(6, 8)
+        let {x, y} = v
+        var rx = x
+        var ry = y
+    )"));
+    CHECK(c.g("rx").as_int() == 6);
+    CHECK(c.g("ry").as_int() == 8);
+}

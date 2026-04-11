@@ -108,6 +108,10 @@ enum class Op : uint8_t {
     // --- Type check ---
     IsInstance,   // A B C   R[A] = (R[B] is instance of class named K[C])
 
+    // --- Destructuring rest element ---
+    // SliceFrom A, B, C: R[A] = array slice of R[B] starting at index C (8-bit immediate)
+    SliceFrom,    // A B C           R[A] = R[B].array[C..]
+
     // --- Misc ---
     Nop,
 

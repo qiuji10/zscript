@@ -217,6 +217,20 @@ struct MultiVarDeclStmt : Stmt {
     ExprPtr                  init;     // call expression that returns multiple values
 };
 
+// let [a, b, ...rest] = arr   or   let {x, y: alias} = obj
+struct DestructureStmt : Stmt {
+    bool is_let    = true;
+    bool is_global = false;  // true → SetGlobal (top-level), false → define_local
+    enum class Kind { Array, Table } kind = Kind::Array;
+    struct Binding {
+        std::string name;           // variable name to bind to
+        std::string key;            // table only: field key to extract (defaults to name)
+        bool        is_rest = false;// ...rest — captures remaining array elements
+    };
+    std::vector<Binding> bindings;
+    ExprPtr              init;
+};
+
 struct IfStmt : Stmt {
     ExprPtr   cond;
     Block     then_block;

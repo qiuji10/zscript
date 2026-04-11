@@ -552,6 +552,8 @@ void Compiler::compile_stmt(const Stmt& stmt) {
         }
     } else if (auto* s = dynamic_cast<const MultiVarDeclStmt*>(&stmt)) {
         compile_multi_var_decl(*s);
+    } else if (auto* s = dynamic_cast<const DestructureStmt*>(&stmt)) {
+        compile_destructure(*s);
     } else if (auto* s = dynamic_cast<const ExprStmt*>(&stmt)) {
         uint8_t r = alloc_reg();
         compile_expr(*s->expr, r);
@@ -584,6 +586,54 @@ void Compiler::compile_multi_var_decl(const MultiVarDeclStmt& s) {
     // Define each name as a local backed by its result register.
     for (uint8_t i = 0; i < N; ++i)
         define_local(s.names[i], first_reg + i, s.is_let[i]);
+}
+
+void Compiler::compile_destructure(const DestructureStmt& s) {
+    // Compile the RHS into a temp register.
+    uint8_t src = alloc_reg();
+    compile_expr(*s.init, src);
+
+    uint32_t line = s.loc.line;
+
+    auto bind = [&](const std::string& name, uint8_t val_reg) {
+        if (s.is_global) {
+            uint16_t k = str_const(name);
+            emit_ABx(Op::SetGlobal, val_reg, k, line);
+            free_reg(val_reg);
+        } else {
+            define_local(name, val_reg, s.is_let);
+        }
+    };
+
+    if (s.kind == DestructureStmt::Kind::Array) {
+        int64_t idx = 0;
+        for (auto& b : s.bindings) {
+            uint8_t dest = alloc_reg();
+            if (b.is_rest) {
+                // SliceFrom dest, src, idx  → dest = src.array[idx..]
+                emit_ABC(Op::SliceFrom, dest, src, (uint8_t)idx, line);
+            } else {
+                uint8_t idx_reg = alloc_reg();
+                emit_AsBx(Op::LoadInt, idx_reg, idx, line);
+                emit_ABC(Op::GetIndex, dest, src, idx_reg, line);
+                free_reg(idx_reg);
+                ++idx;
+            }
+            bind(b.name, dest);
+        }
+    } else {
+        // Table destructuring
+        for (auto& b : s.bindings) {
+            uint8_t dest    = alloc_reg();
+            const std::string& field = b.key.empty() ? b.name : b.key;
+            uint16_t key_k  = str_const(field);
+            // GetField encoding: A=dest, upper8(Bx)=obj_reg, lower8(Bx)=name_k
+            emit_ABx(Op::GetField, dest, (uint16_t)((src << 8) | (key_k & 0xFF)), line);
+            bind(b.name, dest);
+        }
+    }
+
+    free_reg(src);
 }
 
 void Compiler::compile_var_decl(const VarDeclStmt& s) {

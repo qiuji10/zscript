@@ -132,6 +132,7 @@ private:
     void compile_block(const Block& block);
     void compile_var_decl(const VarDeclStmt& s);
     void compile_multi_var_decl(const MultiVarDeclStmt& s);
+    void compile_destructure(const DestructureStmt& s);
     void compile_return(const ReturnStmt& s);
     void compile_if(const IfStmt& s);
     void compile_while(const WhileStmt& s);

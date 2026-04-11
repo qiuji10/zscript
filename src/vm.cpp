@@ -1725,6 +1725,20 @@ bool VM::run(size_t stop_depth) {
                     break;
                 }
 
+                case Op::SliceFrom: {
+                    // A=dest, B=src_table, C=start_index (8-bit immediate)
+                    Value& src = R(B);
+                    Value out  = Value::from_table();
+                    if (src.is_table()) {
+                        auto& arr = src.as_table()->array;
+                        size_t start = (size_t)C;
+                        for (size_t i = start; i < arr.size(); ++i)
+                            out.as_table()->array.push_back(arr[i]);
+                    }
+                    R(A) = std::move(out);
+                    break;
+                }
+
                 case Op::Nop:
                     break;
 

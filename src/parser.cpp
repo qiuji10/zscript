@@ -373,6 +373,16 @@ DeclPtr Parser::parse_field_or_var_decl(std::vector<Annotation> annots, bool /*a
     bool is_let = check(TokenKind::KwLet);
     advance(); // consume let/var
 
+    // Top-level destructuring: let [a, b] = ... or let {x, y} = ...
+    if (check(TokenKind::LBracket) || check(TokenKind::LBrace)) {
+        auto stmt = parse_destructure_stmt(is_let, /*is_global=*/true);
+        auto node = std::make_unique<StmtDecl>();
+        node->loc  = loc;
+        node->annotations = std::move(annots);
+        node->stmt = std::move(stmt);
+        return node;
+    }
+
     std::string first_name = expect(TokenKind::Ident, "expected variable name").lexeme;
 
     // Multi-variable destructuring at top level: let a, b = foo()
@@ -665,11 +675,65 @@ StmtPtr Parser::parse_stmt() {
     return stmt;
 }
 
+// let [a, b, ...rest] = expr   or   let {x, y: alias} = obj
+StmtPtr Parser::parse_destructure_stmt(bool is_let, bool is_global) {
+    SourceLoc loc = cur_loc();
+    auto stmt = std::make_unique<DestructureStmt>();
+    stmt->loc       = loc;
+    stmt->is_let    = is_let;
+    stmt->is_global = is_global;
+
+    if (check(TokenKind::LBracket)) {
+        stmt->kind = DestructureStmt::Kind::Array;
+        advance(); // consume '['
+        while (!check(TokenKind::RBracket) && !check(TokenKind::Eof)) {
+            DestructureStmt::Binding b;
+            if (check(TokenKind::DotDotDot)) {
+                advance(); // consume '...'
+                b.name    = expect(TokenKind::Ident, "expected name after '...'").lexeme;
+                b.is_rest = true;
+                stmt->bindings.push_back(std::move(b));
+                match(TokenKind::Comma); // optional trailing comma
+                break;
+            }
+            b.name = expect(TokenKind::Ident, "expected variable name").lexeme;
+            stmt->bindings.push_back(std::move(b));
+            if (!check(TokenKind::RBracket)) expect(TokenKind::Comma, "expected ','");
+        }
+        expect(TokenKind::RBracket, "expected ']'");
+    } else {
+        // Table destructuring: {x, y}  or  {fieldName: varName}
+        stmt->kind = DestructureStmt::Kind::Table;
+        advance(); // consume '{'
+        while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+            DestructureStmt::Binding b;
+            b.key  = expect(TokenKind::Ident, "expected field name").lexeme;
+            b.name = b.key;
+            if (match(TokenKind::Colon)) {
+                b.name = expect(TokenKind::Ident, "expected variable name").lexeme;
+            }
+            stmt->bindings.push_back(std::move(b));
+            if (!check(TokenKind::RBrace)) expect(TokenKind::Comma, "expected ','");
+        }
+        expect(TokenKind::RBrace, "expected '}'");
+    }
+
+    expect(TokenKind::Assign, "expected '='");
+    stmt->init = parse_expr();
+    return stmt;
+}
+
 // let/var name: Type = expr   or   let a, b, c = expr  (multi-decl)
 StmtPtr Parser::parse_var_decl_stmt() {
     SourceLoc loc = cur_loc();
     bool is_let = check(TokenKind::KwLet);
     advance();
+
+    // Destructuring: let [a, b] = ... or let {x, y} = ...
+    if (check(TokenKind::LBracket) || check(TokenKind::LBrace)) {
+        return parse_destructure_stmt(is_let, /*is_global=*/false);
+    }
+
     std::string first_name = expect(TokenKind::Ident, "expected variable name").lexeme;
 
     // Multi-variable destructuring: let a, b = foo()
