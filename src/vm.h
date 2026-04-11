@@ -131,6 +131,16 @@ private:
     };
     std::vector<PendingCtor> ctor_stack_;
 
+    // Try-catch support
+    struct TryFrame {
+        size_t  frame_count; // number of CallFrames when PushTry was executed
+        size_t  catch_pc;    // absolute PC in the frame to jump to on error
+        uint8_t base_reg;    // base_reg of the catching frame
+        uint8_t catch_reg;   // register to store the caught error value
+    };
+    std::vector<TryFrame> try_stack_;
+    Value thrown_value_;     // last value passed to Op::Throw
+
     void mark_roots(GC& gc);
     void runtime_error(const std::string& msg);
     std::string format_trace() const;

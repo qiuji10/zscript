@@ -39,6 +39,9 @@ enum class TokenKind : uint16_t {
     KwBreak,      // break
     KwContinue,   // continue
     KwMatch,      // match
+    KwThrow,      // throw
+    KwTry,        // try
+    KwCatch,      // catch
 
     // --- Punctuation / Delimiters ---
     LBrace,       // {
@@ -64,6 +67,7 @@ enum class TokenKind : uint16_t {
     Star,         // *
     Slash,        // /
     Percent,      // %
+    StarStar,     // **  (power)
 
     // --- Operators: comparison ---
     Eq,           // ==
@@ -126,7 +130,7 @@ struct Token {
     SourceLoc   loc;
 
     bool is(TokenKind k)  const { return kind == k; }
-    bool is_keyword()     const { return kind >= TokenKind::KwLet && kind <= TokenKind::KwMatch; }
+    bool is_keyword()     const { return kind >= TokenKind::KwLet && kind <= TokenKind::KwCatch; }
     bool is_literal()     const { return kind >= TokenKind::LitInt && kind <= TokenKind::LitNil; }
 };
 

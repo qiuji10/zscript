@@ -389,6 +389,10 @@ void Compiler::compile_stmt(const Stmt& stmt) {
         compile_engine_block(*s);
     } else if (auto* s = dynamic_cast<const MatchStmt*>(&stmt)) {
         compile_match(*s);
+    } else if (auto* s = dynamic_cast<const ThrowStmt*>(&stmt)) {
+        compile_throw(*s);
+    } else if (auto* s = dynamic_cast<const TryCatchStmt*>(&stmt)) {
+        compile_try_catch(*s);
     } else if (auto* s = dynamic_cast<const BlockStmt*>(&stmt)) {
         compile_block(s->block);
     } else if (dynamic_cast<const BreakStmt*>(&stmt)) {
@@ -612,6 +616,76 @@ void Compiler::compile_for(const ForStmt& s) {
         free_reg(cmp_reg);
         free_reg(limit_reg);
         free_reg(iter_reg);
+    } else if (!s.key_name.empty()) {
+        // Key-value iteration: for k, v in table { }
+        //   tbl  = iterable
+        //   keys = TableKeys(tbl)   // array of hash keys
+        //   idx  = 0
+        //   len  = #keys
+        //   loop:
+        //     if idx >= len: exit
+        //     k = keys[idx]
+        //     v = tbl[k]
+        //     body
+        //   continue_target:
+        //     idx = idx + 1
+        //     jump loop
+        uint8_t tbl_reg  = alloc_reg();
+        uint8_t keys_reg = alloc_reg();
+        uint8_t idx_reg  = alloc_reg();
+        uint8_t len_reg  = alloc_reg();
+        uint8_t cmp_reg  = alloc_reg();
+
+        compile_expr(*s.iterable, tbl_reg);
+        emit_ABC(Op::TableKeys, keys_reg, tbl_reg, 0, s.loc.line);
+        emit_AsBx(Op::LoadInt, idx_reg, 0, s.loc.line);
+        emit_ABC(Op::TLen, len_reg, keys_reg, 0, s.loc.line);
+
+        int loop_start = current_pc();
+        cur_fn_->break_patches.push_back({});
+        cur_fn_->continue_patches.push_back({});
+        cur_fn_->continue_targets.push_back(-1);
+
+        emit_ABC(Op::Lt, cmp_reg, idx_reg, len_reg, s.loc.line);
+        size_t exit_jump = emit_jump(Op::JumpFalse, cmp_reg, s.loc.line);
+
+        push_scope();
+        uint8_t key_reg = alloc_reg();
+        uint8_t val_reg = alloc_reg();
+        emit_ABC(Op::GetIndex, key_reg, keys_reg, idx_reg, s.loc.line);
+        emit_ABC(Op::GetIndex, val_reg, tbl_reg,  key_reg, s.loc.line);
+        define_local(s.var_name,  key_reg, s.binding_is_let);
+        define_local(s.key_name,  val_reg, s.binding_is_let);
+        for (auto& stmt : s.body.stmts) compile_stmt(*stmt);
+        pop_scope();
+
+        int increment_pc = current_pc();
+        cur_fn_->continue_targets.back() = increment_pc;
+        for (auto& cp : cur_fn_->continue_patches.back()) {
+            auto& code = cur_fn_->proto->code;
+            int off = increment_pc - (int)cp.instr_idx - 1;
+            code[cp.instr_idx] = encode_AsBx(Op::Jump, 0, off);
+        }
+        uint16_t k1     = add_constant(Value::from_int(1));
+        uint8_t  one_reg = alloc_reg();
+        emit_ABx(Op::LoadK, one_reg, k1, s.loc.line);
+        emit_ABC(Op::Add, idx_reg, idx_reg, one_reg, s.loc.line);
+        free_reg(one_reg);
+        int offset = loop_start - current_pc() - 1;
+        emit_sBx(Op::Jump, offset, s.loc.line);
+        patch_jump(exit_jump);
+
+        for (auto& bp : cur_fn_->break_patches.back())
+            patch_jump(bp.instr_idx);
+        cur_fn_->break_patches.pop_back();
+        cur_fn_->continue_patches.pop_back();
+        cur_fn_->continue_targets.pop_back();
+
+        free_reg(cmp_reg);
+        free_reg(len_reg);
+        free_reg(idx_reg);
+        free_reg(keys_reg);
+        free_reg(tbl_reg);
     } else {
         // General iterable: table/array — emit an index-based loop
         //   tbl  = iterable
@@ -732,6 +806,58 @@ void Compiler::compile_engine_block(const EngineBlock& s) {
         compile_block(s.body);
     }
     // Otherwise: silently skip
+}
+
+void Compiler::compile_throw(const ThrowStmt& s) {
+    uint8_t reg = alloc_reg();
+    compile_expr(*s.value, reg);
+    emit_ABC(Op::Throw, reg, 0, 0, s.loc.line);
+    free_reg(reg);
+}
+
+void Compiler::compile_try_catch(const TryCatchStmt& s) {
+    // Layout:
+    //   PushTry  catch_reg, offset_to_catch_block
+    //   <try_block>
+    //   PopTry
+    //   Jump  over_catch
+    //   <catch_block with catch_var in catch_reg>
+    //   <done>
+
+    uint8_t catch_reg = cur_reg(); // catch var will land here
+
+    // Emit PushTry — patch sBx offset after we know the catch block PC.
+    size_t push_idx = emit_AsBx(Op::PushTry, catch_reg, 0, s.loc.line);
+
+    // Try block
+    compile_block(s.try_block);
+
+    // PopTry — end of protected region
+    emit_ABC(Op::PopTry, 0, 0, 0, s.loc.line);
+
+    // Jump over catch block
+    size_t jump_over = emit_sBx(Op::Jump, 0, s.loc.line);
+
+    // Catch block starts here — patch PushTry's sBx to point here
+    int catch_pc = current_pc();
+    {
+        auto& code = cur_fn_->proto->code;
+        int off = catch_pc - (int)push_idx - 1;
+        code[push_idx] = encode_AsBx(Op::PushTry, catch_reg, off);
+    }
+
+    // Reset next_reg to catch_reg so that alloc_reg() gives exactly catch_reg.
+    // This is correct: try-block locals are out of scope after an exception.
+    cur_fn_->next_reg = catch_reg;
+
+    // catch_reg holds the thrown value; define it as a local.
+    push_scope();
+    uint8_t bound_reg = alloc_reg(); // will equal catch_reg
+    define_local(s.catch_var, bound_reg, /*is_let=*/true);
+    compile_block(s.catch_block);
+    pop_scope();
+
+    patch_jump(jump_over);
 }
 
 // ===========================================================================
@@ -885,11 +1011,12 @@ uint8_t Compiler::compile_binary(const BinaryExpr& e, std::optional<uint8_t> des
 
     Op op;
     switch (e.op) {
-        case TokenKind::Plus:    op = Op::Add; break;
-        case TokenKind::Minus:   op = Op::Sub; break;
-        case TokenKind::Star:    op = Op::Mul; break;
-        case TokenKind::Slash:   op = Op::Div; break;
-        case TokenKind::Percent: op = Op::Mod; break;
+        case TokenKind::Plus:     op = Op::Add; break;
+        case TokenKind::Minus:    op = Op::Sub; break;
+        case TokenKind::Star:     op = Op::Mul; break;
+        case TokenKind::Slash:    op = Op::Div; break;
+        case TokenKind::Percent:  op = Op::Mod; break;
+        case TokenKind::StarStar: op = Op::Pow; break;
         case TokenKind::Eq:      op = Op::Eq;  break;
         case TokenKind::NotEq:   op = Op::Ne;  break;
         case TokenKind::Lt:      op = Op::Lt;  break;

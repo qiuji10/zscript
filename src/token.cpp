@@ -31,6 +31,10 @@ const char* token_kind_name(TokenKind k) {
         case TokenKind::KwBreak:      return "break";
         case TokenKind::KwContinue:   return "continue";
         case TokenKind::KwMatch:      return "match";
+        case TokenKind::KwThrow:      return "throw";
+        case TokenKind::KwTry:        return "try";
+        case TokenKind::KwCatch:      return "catch";
+        case TokenKind::StarStar:     return "**";
         case TokenKind::LBrace:       return "{";
         case TokenKind::RBrace:       return "}";
         case TokenKind::LParen:       return "(";

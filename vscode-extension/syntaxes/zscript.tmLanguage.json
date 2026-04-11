@@ -78,7 +78,7 @@
       "patterns": [
         {
           "name": "keyword.control.zscript",
-          "match": "\\b(if|else|while|for|in|return|break|continue|not|match)\\b"
+          "match": "\\b(if|else|while|for|in|return|break|continue|not|match|throw|try|catch)\\b"
         },
         {
           "name": "keyword.declaration.zscript",
@@ -197,7 +197,7 @@
         },
         {
           "name": "keyword.operator.arithmetic.zscript",
-          "match": "[+\\-*/%]"
+          "match": "\\*\\*|[+\\-*/%]"
         },
         {
           "name": "keyword.operator.nullable.zscript",

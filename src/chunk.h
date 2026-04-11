@@ -93,6 +93,17 @@ enum class Op : uint8_t {
     // --- Table length ---
     TLen,         // A B             R[A] = #R[B]  (array length of table, or string length)
 
+    // --- Power ---
+    Pow,          // A B C           R[A] = R[B] ** R[C]
+
+    // --- Table keys (for k,v iteration) ---
+    TableKeys,    // A B             R[A] = array of string keys of R[B] (hash part)
+
+    // --- Error handling ---
+    Throw,        // A               throw R[A]  (stores value, raises RuntimeError)
+    PushTry,      // A sBx           A=catch_reg, sBx=offset to catch block; push try frame
+    PopTry,       //                 pop try frame (end of try block)
+
     // --- Misc ---
     Nop,
 

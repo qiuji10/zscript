@@ -234,15 +234,27 @@ struct WhileStmt : Stmt {
 };
 
 // for let/var name in iterable { }
+// for let/var k, v in table { }   (key-value iteration)
 struct ForStmt : Stmt {
     bool        binding_is_let;
-    std::string var_name;
+    std::string var_name;    // value variable (or key if key_name is empty)
+    std::string key_name;    // non-empty → k,v iteration; var_name = key, key_name = value
     ExprPtr     iterable;
     Block       body;
 };
 
 struct BreakStmt    : Stmt {};
 struct ContinueStmt : Stmt {};
+
+struct ThrowStmt : Stmt {
+    ExprPtr value;
+};
+
+struct TryCatchStmt : Stmt {
+    Block       try_block;
+    std::string catch_var;   // variable name bound to the caught error
+    Block       catch_block;
+};
 
 // @unity { } / @unreal { } inside a function body
 struct EngineBlock : Stmt {

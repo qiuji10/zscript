@@ -26,6 +26,9 @@ static const std::unordered_map<std::string, TokenKind> keywords = {
     {"break",    TokenKind::KwBreak},
     {"continue", TokenKind::KwContinue},
     {"match",    TokenKind::KwMatch},
+    {"throw",    TokenKind::KwThrow},
+    {"try",      TokenKind::KwTry},
+    {"catch",    TokenKind::KwCatch},
     {"not",      TokenKind::Bang},   // 'not' is an alias for '!'
     {"true",   TokenKind::LitTrue},
     {"false",  TokenKind::LitFalse},
@@ -317,6 +320,7 @@ Token Lexer::scan_next() {
             return make(TokenKind::Percent, "%");
         case '*':
             if (match('=')) return make(TokenKind::StarAssign, "*=");
+            if (match('*')) return make(TokenKind::StarStar,   "**");
             return make(TokenKind::Star, "*");
         case '/':
             if (match('=')) return make(TokenKind::SlashAssign, "/=");

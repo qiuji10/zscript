@@ -575,6 +575,8 @@ StmtPtr Parser::parse_stmt() {
         case TokenKind::KwFor:      return parse_for_stmt();
         case TokenKind::At:         return parse_engine_block_stmt();
         case TokenKind::KwMatch:    return parse_match_stmt();
+        case TokenKind::KwThrow:    return parse_throw_stmt();
+        case TokenKind::KwTry:      return parse_try_catch_stmt();
         case TokenKind::KwBreak: {
             auto s = std::make_unique<BreakStmt>();
             s->loc = cur_loc();
@@ -699,6 +701,7 @@ StmtPtr Parser::parse_while_stmt() {
 }
 
 // for let/var name in iterable { }
+// for let/var k, v in table { }   (key-value iteration)
 StmtPtr Parser::parse_for_stmt() {
     auto stmt = std::make_unique<ForStmt>();
     stmt->loc = cur_loc();
@@ -713,6 +716,13 @@ StmtPtr Parser::parse_for_stmt() {
     }
 
     stmt->var_name = expect(TokenKind::Ident, "expected loop variable name").lexeme;
+
+    // Optional second variable: for k, v in table
+    if (check(TokenKind::Comma)) {
+        advance();
+        stmt->key_name = expect(TokenKind::Ident, "expected value variable name").lexeme;
+    }
+
     expect(TokenKind::KwIn, "expected 'in'");
     stmt->iterable = parse_expr();
     stmt->body     = parse_block();
@@ -762,6 +772,27 @@ StmtPtr Parser::parse_match_stmt() {
         stmt->arms.push_back(std::move(arm));
     }
     expect(TokenKind::RBrace, "expected '}' to close match");
+    return stmt;
+}
+
+// throw expr
+StmtPtr Parser::parse_throw_stmt() {
+    auto stmt = std::make_unique<ThrowStmt>();
+    stmt->loc = cur_loc();
+    expect(TokenKind::KwThrow, "expected 'throw'");
+    stmt->value = parse_expr();
+    return stmt;
+}
+
+// try { } catch name { }
+StmtPtr Parser::parse_try_catch_stmt() {
+    auto stmt = std::make_unique<TryCatchStmt>();
+    stmt->loc = cur_loc();
+    expect(TokenKind::KwTry, "expected 'try'");
+    stmt->try_block = parse_block();
+    expect(TokenKind::KwCatch, "expected 'catch' after try block");
+    stmt->catch_var = expect(TokenKind::Ident, "expected catch variable name").lexeme;
+    stmt->catch_block = parse_block();
     return stmt;
 }
 
@@ -972,7 +1003,7 @@ ExprPtr Parser::parse_addition() {
 }
 
 ExprPtr Parser::parse_multiplication() {
-    ExprPtr left = parse_unary();
+    ExprPtr left = parse_power();
     while (check(TokenKind::Star) || check(TokenKind::Slash) || check(TokenKind::Percent)) {
         TokenKind op  = peek().kind;
         SourceLoc loc = cur_loc();
@@ -981,8 +1012,24 @@ ExprPtr Parser::parse_multiplication() {
         node->loc   = loc;
         node->op    = op;
         node->left  = std::move(left);
-        node->right = parse_unary();
+        node->right = parse_power();
         left = std::move(node);
+    }
+    return left;
+}
+
+// ** is right-associative and tighter than * / %
+ExprPtr Parser::parse_power() {
+    ExprPtr left = parse_unary();
+    if (check(TokenKind::StarStar)) {
+        SourceLoc loc = cur_loc();
+        advance();
+        auto node   = std::make_unique<BinaryExpr>();
+        node->loc   = loc;
+        node->op    = TokenKind::StarStar;
+        node->left  = std::move(left);
+        node->right = parse_power(); // right-associative
+        return node;
     }
     return left;
 }

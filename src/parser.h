@@ -65,6 +65,8 @@ private:
     StmtPtr parse_for_stmt();
     StmtPtr parse_engine_block_stmt();
     StmtPtr parse_match_stmt();
+    StmtPtr parse_throw_stmt();
+    StmtPtr parse_try_catch_stmt();
 
     // ---- expressions ----
     ExprPtr parse_expr();
@@ -76,6 +78,7 @@ private:
     ExprPtr parse_range();
     ExprPtr parse_addition();
     ExprPtr parse_multiplication();
+    ExprPtr parse_power();
     ExprPtr parse_unary();
     ExprPtr parse_postfix();
     ExprPtr parse_primary();

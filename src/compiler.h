@@ -137,6 +137,8 @@ private:
     void compile_for(const ForStmt& s);
     void compile_engine_block(const EngineBlock& s);
     void compile_match(const MatchStmt& s);
+    void compile_throw(const ThrowStmt& s);
+    void compile_try_catch(const TryCatchStmt& s);
 
     // =========================================================================
     // Compilation — expressions

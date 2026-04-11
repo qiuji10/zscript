@@ -1039,6 +1039,7 @@ bool VM::run() {
 
         bool frame_changed = false;
 
+        try {
         while (!frame_changed && pc < proto->code.size()) {
             uint32_t instr = proto->code[pc++];
             Op       op  = instr_op(instr);
@@ -1408,6 +1409,48 @@ bool VM::run() {
                     break;
                 }
 
+                case Op::Pow: {
+                    auto& lb = R(B); auto& rc = R(C);
+                    if (lb.is_int() && rc.is_int() && rc.as_int() >= 0) {
+                        int64_t base = lb.as_int(), exp = rc.as_int(), result = 1;
+                        for (int64_t i = 0; i < exp; ++i) result *= base;
+                        R(A) = Value::from_int(result);
+                    } else {
+                        R(A) = Value::from_float(std::pow(lb.to_float(), rc.to_float()));
+                    }
+                    break;
+                }
+
+                case Op::TableKeys: {
+                    Value& tbl = R(B);
+                    if (!tbl.is_table()) runtime_error("'for k,v' requires a table");
+                    Value keys = Value::from_table();
+                    auto* kt = keys.as_table();
+                    int64_t i = 0;
+                    for (auto& [k, v] : tbl.as_table()->hash)
+                        kt->set_index(i++, Value::from_string(k));
+                    R(A) = std::move(keys);
+                    break;
+                }
+
+                case Op::Throw: {
+                    thrown_value_ = R(A);
+                    runtime_error(R(A).to_string());
+                    break;
+                }
+
+                case Op::PushTry: {
+                    // A = catch_reg (relative to base_reg), sBx = offset to catch block
+                    size_t catch_pc = pc + (size_t)sbx; // pc already incremented past this instr
+                    try_stack_.push_back({frames_.size(), catch_pc, base_reg, A});
+                    break;
+                }
+
+                case Op::PopTry: {
+                    if (!try_stack_.empty()) try_stack_.pop_back();
+                    break;
+                }
+
                 case Op::Nop:
                     break;
 
@@ -1419,9 +1462,31 @@ bool VM::run() {
         // Proto ran to end without a Return — implicit nil return
         if (!frame_changed && !frames_.empty()) {
             uint8_t this_base = frames_.back().base_reg;
+            uint8_t nr = frames_.back().num_results;
             frames_.pop_back();
             if (!frames_.empty()) {
-                regs_[this_base - 1] = Value::nil();
+                for (uint8_t i = 0; i < nr; ++i)
+                    regs_[this_base - 1 + i] = Value::nil();
+            }
+        }
+
+        } catch (const RuntimeError& e) {
+            if (!try_stack_.empty()) {
+                auto tf = try_stack_.back();
+                try_stack_.pop_back();
+                // Unwind call stack back to the frame that installed the handler
+                while (frames_.size() > tf.frame_count)
+                    frames_.pop_back();
+                // Jump to catch block and bind error value
+                frames_.back().pc = tf.catch_pc;
+                regs_[tf.base_reg + tf.catch_reg] =
+                    (thrown_value_.tag != Value::Tag::Nil)
+                        ? thrown_value_
+                        : Value::from_string(e.message);
+                thrown_value_ = Value::nil(); // reset
+            } else {
+                last_error_ = e;
+                return false;
             }
         }
     } // end outer while

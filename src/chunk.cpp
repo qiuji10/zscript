@@ -109,6 +109,11 @@ const char* op_name(Op op) {
         case Op::CheckNil:  return "CHECK_NIL";
         case Op::Import:    return "IMPORT";
         case Op::TLen:      return "TLEN";
+        case Op::Pow:       return "POW";
+        case Op::TableKeys: return "TABLE_KEYS";
+        case Op::Throw:     return "THROW";
+        case Op::PushTry:   return "PUSH_TRY";
+        case Op::PopTry:    return "POP_TRY";
         case Op::Nop:       return "NOP";
         default:            return "???";
     }
