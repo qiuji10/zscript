@@ -1194,38 +1194,20 @@ uint8_t Compiler::compile_field(const FieldExpr& e, std::optional<uint8_t> dest)
         // Emit CheckNil then GetField
         emit_ABx(Op::CheckNil, obj_reg, name_k, e.loc.line);
     }
-    // Safe access: if nil, result is nil (emit conditional)
+    // Safe access (?.) — if obj is nil, result is nil; else fetch field
     if (e.access == FieldExpr::Access::Safe) {
-        // if obj_reg == nil: reg = nil, else: reg = obj.field
         uint8_t cmp_reg = alloc_reg();
         emit_ABx(Op::LoadNil, cmp_reg, 0, e.loc.line);
-        emit_ABC(Op::Ne, cmp_reg, obj_reg, cmp_reg, e.loc.line);
-        size_t jmp = emit_jump(Op::JumpFalse, cmp_reg, e.loc.line);
+        emit_ABC(Op::Eq, cmp_reg, obj_reg, cmp_reg, e.loc.line);  // cmp = (obj == nil)
+        size_t jmp_nil = emit_jump(Op::JumpTrue, cmp_reg, e.loc.line); // jump if nil
         free_reg(cmp_reg);
-        // Then branch: get field
-        emit_ABx(Op::GetField, reg, name_k, e.loc.line);
-        // Patch: skip over the nil-load if obj was not nil
-        size_t jmp2 = emit_sBx(Op::Jump, 0, e.loc.line);
-        patch_jump(jmp);
-        // Else branch: reg = nil
+        // Non-nil branch: fetch field
+        emit_ABx(Op::GetField, reg, (uint16_t)((uint16_t)obj_reg << 8 | (name_k & 0xFF)), e.loc.line);
+        size_t jmp_end = emit_sBx(Op::Jump, 0, e.loc.line);
+        // Nil branch: result = nil
+        patch_jump(jmp_nil);
         emit_ABx(Op::LoadNil, reg, 0, e.loc.line);
-        patch_jump(jmp2);
-        // GetField instruction: A=dest, B=obj, Bx=field_const
-        // We need to fix the GetField above to include the obj register.
-        // Patch: re-emit GetField with A=reg B=obj_reg Bx=name_k
-        // This is a known limitation of single-pass emission; we'll fix the
-        // GetField at the emitted position.
-        size_t gf_idx = cur_fn_->proto->code.size() - 4;
-        cur_fn_->proto->code[gf_idx] = encode_ABx(Op::GetField, reg, name_k);
-        // Actually encode_ABx only takes A and Bx; we need to encode obj too.
-        // Use our custom packing: encode A=reg, B=obj_reg via ABx where
-        // upper 8 bits of Bx carry obj_reg and lower 8 carry name_k.
-        // Simpler: use ABC(GetField, reg, obj_reg, name_k) — but name_k is 16-bit.
-        // We accept this limitation: GetField uses A=dest, Bx=name_k, and the
-        // VM must know that the object is in the register preceding dest, or
-        // we redesign. For now we encode GetField as ABx where upper 8=obj, lower 8=name_k.
-        // Repack:
-        cur_fn_->proto->code[gf_idx] = encode_ABx(Op::GetField, reg, (uint16_t)((uint16_t)obj_reg << 8 | (name_k & 0xFF)));
+        patch_jump(jmp_end);
         free_reg(obj_reg);
         return reg;
     }
@@ -1265,11 +1247,23 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
     // Layout: R[base]=method, R[base+1]=self(obj), R[base+2..]=user args
     // Uses Op::CallMethod so the VM knows to skip self for native callees.
     if (auto* field = dynamic_cast<const FieldExpr*>(e.callee.get())) {
-        if (field->access == FieldExpr::Access::Dot) {
+        if (field->access == FieldExpr::Access::Dot ||
+            field->access == FieldExpr::Access::Safe) {
+            bool is_safe = (field->access == FieldExpr::Access::Safe);
             uint8_t base  = cur_reg();
             uint8_t m_reg = alloc_reg(); // base+0 = method
             uint8_t s_reg = alloc_reg(); // base+1 = self (obj)
             compile_expr(*field->object, s_reg);
+
+            size_t jmp_nil = 0, jmp_end = 0;
+            if (is_safe) {
+                uint8_t cmp_reg = alloc_reg();
+                emit_ABx(Op::LoadNil, cmp_reg, 0, field->loc.line);
+                emit_ABC(Op::Eq, cmp_reg, s_reg, cmp_reg, field->loc.line);
+                jmp_nil = emit_jump(Op::JumpTrue, cmp_reg, field->loc.line);
+                free_reg(cmp_reg);
+            }
+
             uint16_t nk = str_const(field->field);
             emit_ABx(Op::GetField, m_reg,
                      (uint16_t)((s_reg << 8) | nk), field->loc.line);
@@ -1279,9 +1273,17 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
                 uint8_t ar = alloc_reg();
                 compile_expr(*arg, ar);
             }
-            uint8_t num_args = (uint8_t)e.args.size(); // self is at base+1, not counted here
+            uint8_t num_args = (uint8_t)e.args.size();
             emit_ABC(Op::CallMethod, base, num_args, 1, e.loc.line);
             cur_fn_->next_reg = base + 1;
+
+            if (is_safe) {
+                jmp_end = emit_sBx(Op::Jump, 0, e.loc.line);
+                patch_jump(jmp_nil);
+                emit_ABx(Op::LoadNil, m_reg, 0, e.loc.line); // result at base = nil
+                patch_jump(jmp_end);
+            }
+
             if (cur_fn_->max_reg < cur_fn_->next_reg)
                 cur_fn_->max_reg = cur_fn_->next_reg;
             return into(base, dest);
