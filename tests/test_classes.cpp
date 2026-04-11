@@ -352,6 +352,90 @@ TEST_CASE("default param used when arg is omitted", "[classes][defaults]") {
     CHECK(c.g("r2").as_string() == "hi world");
 }
 
+// ---------------------------------------------------------------------------
+// Static methods and fields
+// ---------------------------------------------------------------------------
+
+TEST_CASE("static method callable on class without instance", "[classes][static]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class MathHelper {
+            static fn square(x) { return x * x }
+            static fn cube(x)   { return x * x * x }
+        }
+        var s = MathHelper.square(5)
+        var cu = MathHelper.cube(3)
+    )"));
+    CHECK(c.g("s").as_int()  == 25);
+    CHECK(c.g("cu").as_int() == 27);
+}
+
+TEST_CASE("static field shared across class", "[classes][static]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Counter {
+            static var count = 0
+            fn init() { Counter.count = Counter.count + 1 }
+        }
+        let a = Counter()
+        let b = Counter()
+        let c2 = Counter()
+        var n = Counter.count
+    )"));
+    CHECK(c.g("n").as_int() == 3);
+}
+
+TEST_CASE("static field not copied to instances", "[classes][static]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Foo {
+            static var x = 42
+            fn init() {}
+        }
+        let f = Foo()
+        var on_class    = Foo.x
+        var on_instance = f.x
+    )"));
+    CHECK(c.g("on_class").as_int() == 42);
+    CHECK(c.g("on_instance").is_nil() == true);
+}
+
+TEST_CASE("static factory method creates instances", "[classes][static]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Point {
+            fn init(x, y) { self.x = x  self.y = y }
+            static fn origin() { return Point(0, 0) }
+            static fn unit_x() { return Point(1, 0) }
+        }
+        let o = Point.origin()
+        let u = Point.unit_x()
+        var ox = o.x
+        var uy = u.y
+    )"));
+    CHECK(c.g("ox").as_int() == 0);
+    CHECK(c.g("uy").as_int() == 0);
+}
+
+TEST_CASE("static and instance methods coexist", "[classes][static]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Dog {
+            static var species = "Canis lupus"
+            fn init(name) { self.name = name }
+            fn bark()     { return self.name + " says woof" }
+            static fn info() { return Dog.species }
+        }
+        let d = Dog("Rex")
+        var sound   = d.bark()
+        var species = Dog.info()
+        var inst_species = d.species
+    )"));
+    CHECK(c.g("sound").as_string()        == "Rex says woof");
+    CHECK(c.g("species").as_string()      == "Canis lupus");
+    CHECK(c.g("inst_species").is_nil()    == true);
+}
+
 TEST_CASE("multiple default params", "[classes][defaults]") {
     Ctx c;
     REQUIRE(c.run(R"(

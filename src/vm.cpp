@@ -1106,9 +1106,16 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
             Value inst = Value::from_table();
             auto* proto_tbl = callee.as_table();
             auto* inst_tbl  = inst.as_table();
-            // Copy methods (skip __class__)
+            // Determine which members are static (should NOT be copied to instances).
+            ZTable* statics_tbl = nullptr;
+            Value statics_val = proto_tbl->get("__statics__");
+            if (statics_val.is_table()) statics_tbl = statics_val.as_table();
+
+            // Copy instance members (skip __class__, __base__, __statics__, and statics).
             for (auto& [k, v] : proto_tbl->hash) {
-                if (k != "__class__") inst_tbl->set(k, v);
+                if (k == "__class__" || k == "__base__" || k == "__statics__") continue;
+                if (statics_tbl && statics_tbl->get(k).truthy()) continue;
+                inst_tbl->set(k, v);
             }
             inst_tbl->set("__class__", cls_val);
 
@@ -1313,15 +1320,20 @@ bool VM::run(size_t stop_depth) {
 
                 case Op::Inherit: {
                     // A = child table, B = parent table
-                    // Copy all hash entries from parent into child (skip __class__ and __base__)
+                    // Copy all entries from parent into child (skip metadata and statics).
                     Value& child  = R(A);
                     Value& parent = R(B);
                     if (child.is_table() && parent.is_table()) {
                         auto* ct = child.as_table();
                         auto* pt = parent.as_table();
+                        // Determine parent statics so we don't inherit them as instance methods.
+                        ZTable* parent_statics = nullptr;
+                        Value ps_val = pt->get("__statics__");
+                        if (ps_val.is_table()) parent_statics = ps_val.as_table();
                         for (auto& [k, v] : pt->hash) {
-                            if (k != "__class__" && k != "__base__")
-                                ct->set(k, v);
+                            if (k == "__class__" || k == "__base__" || k == "__statics__") continue;
+                            if (parent_statics && parent_statics->get(k).truthy()) continue;
+                            ct->set(k, v);
                         }
                     }
                     break;

@@ -273,11 +273,13 @@ struct FnDecl : Decl {
     std::vector<Param>       params;
     TypePtr                  return_type;  // null if omitted (spec violation, captured later)
     Block                    body;
+    bool                     is_static = false;
 };
 
 // Class field: let / var name: Type = init
 struct FieldDecl : Decl {
     bool        is_let;
+    bool        is_static = false;
     std::string name;
     TypePtr     type;
     ExprPtr     init;

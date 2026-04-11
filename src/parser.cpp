@@ -259,14 +259,21 @@ DeclPtr Parser::parse_class_decl(std::vector<Annotation> annots) {
 
     while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
         auto member_annots = parse_annotations();
+        bool is_static = match(TokenKind::KwStatic);
         if (check(TokenKind::KwFn)) {
-            node->members.push_back(parse_fn_decl(std::move(member_annots)));
+            auto fn = std::unique_ptr<FnDecl>(
+                static_cast<FnDecl*>(parse_fn_decl(std::move(member_annots)).release()));
+            fn->is_static = is_static;
+            node->members.push_back(std::move(fn));
         } else if (check(TokenKind::KwLet) || check(TokenKind::KwVar)) {
-            node->members.push_back(parse_field_or_var_decl(std::move(member_annots), true));
+            auto fd = std::unique_ptr<FieldDecl>(
+                static_cast<FieldDecl*>(parse_field_or_var_decl(std::move(member_annots), true).release()));
+            fd->is_static = is_static;
+            node->members.push_back(std::move(fd));
         } else if (check_ident("prop")) {
             node->members.push_back(parse_prop_decl(std::move(member_annots)));
         } else {
-            record_error("expected class member (fn, let, var, or prop)");
+            record_error("expected class member (fn, let, var, prop, or static)");
             synchronize();
         }
     }

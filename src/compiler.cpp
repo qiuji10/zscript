@@ -308,10 +308,12 @@ void Compiler::compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line
 // ===========================================================================
 void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
     // Register class name so compile_call knows Foo() means instantiation.
+    // Only non-static methods count as instance methods.
     std::vector<std::string> method_names;
     for (auto& m : cls.members)
         if (auto* fn = dynamic_cast<const FnDecl*>(m.get()))
-            method_names.push_back(fn->name);
+            if (!fn->is_static)
+                method_names.push_back(fn->name);
     class_methods_[cls.name] = method_names;
 
     uint8_t tbl_reg = alloc_reg();
@@ -330,33 +332,63 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
         free_reg(base_reg);
     }
 
-    // Compile each method with `self` injected as first parameter.
+    // Collect static member names for the __statics__ marker.
+    std::vector<std::string> static_names;
+
+    // Compile each member.
     for (auto& member : cls.members) {
+        // ── Instance/static field (FieldDecl) ──
+        if (auto* fd = dynamic_cast<const FieldDecl*>(member.get())) {
+            if (fd->init) {
+                uint8_t val_reg = alloc_reg();
+                compile_expr(*fd->init, val_reg);
+                uint16_t name_k = str_const(fd->name);
+                emit_ABx(Op::SetField, tbl_reg,
+                         (uint16_t)((name_k << 8) | val_reg), fd->loc.line);
+                free_reg(val_reg);
+            }
+            if (fd->is_static) static_names.push_back(fd->name);
+            continue;
+        }
+
+        // ── Method (FnDecl) ──
         auto* fn = dynamic_cast<const FnDecl*>(member.get());
         if (!fn) continue;
 
         Proto* fn_proto = chunk_->new_proto(cls.name + "." + fn->name);
-        fn_proto->num_params = (uint8_t)(fn->params.size() + 1); // +1 for self
 
         FnState child_fs;
         child_fs.proto     = fn_proto;
         child_fs.enclosing = cur_fn_;
         FnState* prev  = cur_fn_;
         cur_fn_        = &child_fs;
-        current_class_      = cls.name;
-        current_base_class_ = cls.base.value_or("");
+        current_class_      = fn->is_static ? "" : cls.name;
+        current_base_class_ = fn->is_static ? "" : cls.base.value_or("");
 
         push_scope();
-        // Register 0 = self
-        uint8_t self_reg = alloc_reg();
-        define_local("self", self_reg, /*is_let=*/false);
-        // Remaining registers = declared params
         std::vector<uint8_t> method_param_regs;
-        for (auto& param : fn->params) {
-            uint8_t r = alloc_reg();
-            define_local(param.name, r, !param.is_mut);
-            method_param_regs.push_back(r);
+
+        if (fn->is_static) {
+            // Static method: no self param — behaves like a regular function
+            fn_proto->num_params = (uint8_t)fn->params.size();
+            for (auto& param : fn->params) {
+                uint8_t r = alloc_reg();
+                define_local(param.name, r, !param.is_mut);
+                method_param_regs.push_back(r);
+            }
+            static_names.push_back(fn->name);
+        } else {
+            // Instance method: self is register 0
+            fn_proto->num_params = (uint8_t)(fn->params.size() + 1);
+            uint8_t self_reg = alloc_reg();
+            define_local("self", self_reg, /*is_let=*/false);
+            for (auto& param : fn->params) {
+                uint8_t r = alloc_reg();
+                define_local(param.name, r, !param.is_mut);
+                method_param_regs.push_back(r);
+            }
         }
+
         // Default-value guards
         for (size_t i = 0; i < fn->params.size(); ++i) {
             const auto& param = fn->params[i];
@@ -392,6 +424,24 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
         emit_ABx(Op::SetField, tbl_reg,
                  (uint16_t)((name_k << 8) | fn_reg), fn->loc.line);
         free_reg(fn_reg);
+    }
+
+    // Emit __statics__ table so the VM can skip static members during instantiation.
+    if (!static_names.empty()) {
+        uint8_t statics_tbl = alloc_reg();
+        emit_ABC(Op::NewTable, statics_tbl, 0, 0, line);
+        for (auto& sname : static_names) {
+            uint8_t bool_reg = alloc_reg();
+            emit_ABx(Op::LoadBool, bool_reg, 1, line); // true
+            uint16_t name_k = str_const(sname);
+            emit_ABx(Op::SetField, statics_tbl,
+                     (uint16_t)((name_k << 8) | bool_reg), line);
+            free_reg(bool_reg);
+        }
+        uint16_t statics_key = str_const("__statics__");
+        emit_ABx(Op::SetField, tbl_reg,
+                 (uint16_t)((statics_key << 8) | statics_tbl), line);
+        free_reg(statics_tbl);
     }
 
     // Mark table as a class prototype so the VM / runtime can identify it.

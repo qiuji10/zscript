@@ -83,7 +83,7 @@
         },
         {
           "name": "keyword.declaration.zscript",
-          "match": "\\b(fn|class|trait|impl|enum|var|let|import|prop|mut)\\b"
+          "match": "\\b(fn|class|trait|impl|enum|var|let|import|prop|mut|static)\\b"
         },
         {
           "name": "keyword.operator.logical.zscript",
