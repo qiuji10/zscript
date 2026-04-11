@@ -34,6 +34,7 @@ const char* token_kind_name(TokenKind k) {
         case TokenKind::KwThrow:      return "throw";
         case TokenKind::KwTry:        return "try";
         case TokenKind::KwCatch:      return "catch";
+        case TokenKind::KwEnum:       return "enum";
         case TokenKind::StarStar:          return "**";
         case TokenKind::QuestionQuestion:  return "??";
         case TokenKind::LBrace:       return "{";

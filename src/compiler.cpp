@@ -194,6 +194,8 @@ void Compiler::compile_top_level(const Program& prog) {
             free_reg(reg);
         } else if (auto* cls = dynamic_cast<const ClassDecl*>(decl.get())) {
             compile_class_decl(*cls, cls->loc.line);
+        } else if (auto* en = dynamic_cast<const EnumDecl*>(decl.get())) {
+            compile_enum_decl(*en, en->loc.line);
         } else if (auto* fd = dynamic_cast<const FieldDecl*>(decl.get())) {
             // Top-level var/let → global
             if (fd->init) {
@@ -360,6 +362,42 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
 
     uint16_t cls_name_k = str_const(cls.name);
     emit_ABx(Op::SetGlobal, tbl_reg, cls_name_k, line);
+    free_reg(tbl_reg);
+}
+
+// ===========================================================================
+// Enum declaration — compiles to a frozen table stored as a global.
+//   enum Direction { North, South, East, West }
+//   → Direction = {North:0, South:1, East:2, West:3}
+// ===========================================================================
+void Compiler::compile_enum_decl(const EnumDecl& e, uint32_t line) {
+    uint8_t tbl_reg = alloc_reg();
+    emit_ABC(Op::NewTable, tbl_reg, 0, 0, line);
+
+    for (auto& v : e.variants) {
+        uint8_t val_reg = alloc_reg();
+        int64_t iv = v.value.value_or(0);
+        uint16_t k = add_constant(Value::from_int(iv));
+        emit_ABx(Op::LoadK, val_reg, k, line);
+        uint16_t name_k = str_const(v.name);
+        emit_ABx(Op::SetField, tbl_reg,
+                 (uint16_t)((name_k << 8) | val_reg), line);
+        free_reg(val_reg);
+    }
+
+    // Also store the enum name in __enum__ so runtime/debug can identify it.
+    {
+        uint8_t mark_reg = alloc_reg();
+        uint16_t mk = str_const(e.name);
+        emit_ABx(Op::LoadK, mark_reg, mk, line);
+        uint16_t key_k = str_const("__enum__");
+        emit_ABx(Op::SetField, tbl_reg,
+                 (uint16_t)((key_k << 8) | mark_reg), line);
+        free_reg(mark_reg);
+    }
+
+    uint16_t enum_name_k = str_const(e.name);
+    emit_ABx(Op::SetGlobal, tbl_reg, enum_name_k, line);
     free_reg(tbl_reg);
 }
 

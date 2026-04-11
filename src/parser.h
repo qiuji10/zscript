@@ -50,6 +50,7 @@ private:
     DeclPtr parse_field_or_var_decl(std::vector<Annotation> annots, bool allow_init);
     DeclPtr parse_prop_decl(std::vector<Annotation> annots);
     DeclPtr parse_import_decl(std::vector<Annotation> annots);
+    DeclPtr parse_enum_decl(std::vector<Annotation> annots);
 
     // Shared helpers
     std::vector<Param>       parse_param_list();

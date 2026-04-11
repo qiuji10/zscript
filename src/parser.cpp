@@ -169,6 +169,7 @@ DeclPtr Parser::parse_decl(std::vector<Annotation> annots) {
         case TokenKind::KwClass:  return parse_class_decl(std::move(annots));
         case TokenKind::KwTrait:  return parse_trait_decl(std::move(annots));
         case TokenKind::KwImpl:   return parse_impl_decl(std::move(annots));
+        case TokenKind::KwEnum:   return parse_enum_decl(std::move(annots));
         case TokenKind::KwLet:
         case TokenKind::KwVar:    return parse_field_or_var_decl(std::move(annots), true);
         case TokenKind::KwImport: return parse_import_decl(std::move(annots));
@@ -493,6 +494,41 @@ DeclPtr Parser::parse_import_decl(std::vector<Annotation> annots) {
         node->alias = seg.empty() ? path : seg;
     }
 
+    return node;
+}
+
+// ===========================================================================
+// enum Direction { North, South, East, West }
+// enum Status { Ok = 200, NotFound = 404 }
+// ===========================================================================
+DeclPtr Parser::parse_enum_decl(std::vector<Annotation> annots) {
+    auto node = std::make_unique<EnumDecl>();
+    node->loc  = cur_loc();
+    node->annotations = std::move(annots);
+
+    expect(TokenKind::KwEnum, "expected 'enum'");
+    node->name = expect(TokenKind::Ident, "expected enum name").lexeme;
+    expect(TokenKind::LBrace, "expected '{' after enum name");
+
+    int64_t next_val = 0;
+    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+        EnumDecl::Variant v;
+        v.name = expect(TokenKind::Ident, "expected variant name").lexeme;
+        if (match(TokenKind::Assign)) {
+            // Explicit value: must be an integer literal (or negated integer)
+            bool neg = match(TokenKind::Minus);
+            const Token& t = expect(TokenKind::LitInt, "expected integer value after '='");
+            int64_t val = std::stoll(t.lexeme);
+            v.value   = neg ? -val : val;
+            next_val  = *v.value + 1;
+        } else {
+            v.value  = next_val++;
+        }
+        node->variants.push_back(std::move(v));
+        match(TokenKind::Comma); // optional trailing comma
+    }
+
+    expect(TokenKind::RBrace, "expected '}' to close enum body");
     return node;
 }
 

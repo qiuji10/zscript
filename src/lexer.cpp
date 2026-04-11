@@ -29,6 +29,7 @@ static const std::unordered_map<std::string, TokenKind> keywords = {
     {"throw",    TokenKind::KwThrow},
     {"try",      TokenKind::KwTry},
     {"catch",    TokenKind::KwCatch},
+    {"enum",     TokenKind::KwEnum},
     {"not",      TokenKind::Bang},   // 'not' is an alias for '!'
     {"true",   TokenKind::LitTrue},
     {"false",  TokenKind::LitFalse},

@@ -10,6 +10,7 @@
     { "include": "#literals" },
     { "include": "#type-names" },
     { "include": "#class-decl" },
+    { "include": "#enum-decl" },
     { "include": "#trait-impl-decl" },
     { "include": "#fn-decl" },
     { "include": "#class-constructor" },
@@ -82,7 +83,7 @@
         },
         {
           "name": "keyword.declaration.zscript",
-          "match": "\\b(fn|class|trait|impl|var|let|import|prop|mut)\\b"
+          "match": "\\b(fn|class|trait|impl|enum|var|let|import|prop|mut)\\b"
         },
         {
           "name": "keyword.operator.logical.zscript",
@@ -126,6 +127,13 @@
         "2": { "name": "entity.name.type.class.zscript" },
         "3": { "name": "punctuation.separator.inheritance.zscript" },
         "4": { "name": "entity.other.inherited-class.zscript" }
+      }
+    },
+    "enum-decl": {
+      "match": "\\b(enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.zscript" },
+        "2": { "name": "entity.name.type.enum.zscript" }
       }
     },
     "trait-impl-decl": {

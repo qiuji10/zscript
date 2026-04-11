@@ -122,6 +122,7 @@ private:
     // =========================================================================
     void compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line);
     void compile_class_decl(const ClassDecl& cls, uint32_t line);
+    void compile_enum_decl(const EnumDecl& e, uint32_t line);
     void compile_top_level(const Program& prog);
 
     // =========================================================================

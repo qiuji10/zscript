@@ -319,6 +319,17 @@ struct ImportDecl : Decl {
     std::string alias;   // optional "as name"; defaults to last segment of path
 };
 
+// enum Direction { North, South, East, West }
+// enum Status { Ok = 200, NotFound = 404 }
+struct EnumDecl : Decl {
+    std::string name;
+    struct Variant {
+        std::string          name;
+        std::optional<int64_t> value;  // absent → auto-increment from previous
+    };
+    std::vector<Variant> variants;
+};
+
 // Wraps a statement that appears at top level (script-style)
 struct StmtDecl : Decl {
     StmtPtr stmt;
