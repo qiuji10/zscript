@@ -61,8 +61,11 @@ private:
         }
 
         // Patch-lists for break/continue
+        // Each entry is one nesting level of loop.
         struct PatchSlot { size_t instr_idx; };
         std::vector<std::vector<PatchSlot>> break_patches;
+        std::vector<std::vector<PatchSlot>> continue_patches;
+        std::vector<int> continue_targets; // PC to jump to on 'continue'
 
         FnState* enclosing = nullptr;   // for nested functions
     };
@@ -148,6 +151,7 @@ private:
     uint8_t compile_string_interp(const StringInterpExpr& e, std::optional<uint8_t> dest);
     uint8_t compile_lambda(const LambdaExpr& e, std::optional<uint8_t> dest);
     uint8_t compile_group(const GroupExpr& e, std::optional<uint8_t> dest);
+    uint8_t compile_array(const ArrayExpr& e, std::optional<uint8_t> dest);
 
     // Emit result into dest_reg (move if necessary); returns dest_reg.
     uint8_t into(uint8_t result_reg, std::optional<uint8_t> dest);

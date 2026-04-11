@@ -156,6 +156,11 @@ struct GroupExpr : Expr {
     ExprPtr inner;
 };
 
+// Array literal: [a, b, c]
+struct ArrayExpr : Expr {
+    std::vector<ExprPtr> elements;
+};
+
 // ===========================================================================
 // Statements
 // ===========================================================================
@@ -199,6 +204,9 @@ struct ForStmt : Stmt {
     ExprPtr     iterable;
     Block       body;
 };
+
+struct BreakStmt    : Stmt {};
+struct ContinueStmt : Stmt {};
 
 // @unity { } / @unreal { } inside a function body
 struct EngineBlock : Stmt {

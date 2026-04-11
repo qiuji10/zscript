@@ -90,6 +90,9 @@ enum class Op : uint8_t {
     // Import: load module by name (K[Bx]), store exports table into R[A]
     Import,       // A Bx            R[A] = load_module(K[Bx])
 
+    // --- Table length ---
+    TLen,         // A B             R[A] = #R[B]  (array length of table, or string length)
+
     // --- Misc ---
     Nop,
 

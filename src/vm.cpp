@@ -1345,6 +1345,18 @@ bool VM::run() {
                     break;
                 }
 
+                case Op::TLen: {
+                    auto& src = R(B);
+                    if (src.tag == Value::Tag::Table) {
+                        R(A) = Value::from_int((int64_t)src.table_ptr->array.size());
+                    } else if (src.tag == Value::Tag::String) {
+                        R(A) = Value::from_int((int64_t)src.str_ptr->data.size());
+                    } else {
+                        runtime_error("'#' operator requires table or string, got " + src.type_name());
+                    }
+                    break;
+                }
+
                 case Op::Nop:
                     break;
 

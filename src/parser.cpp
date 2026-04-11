@@ -90,6 +90,8 @@ void Parser::synchronize() {
             case TokenKind::KwWhile:
             case TokenKind::KwFor:
             case TokenKind::KwImport:
+            case TokenKind::KwBreak:
+            case TokenKind::KwContinue:
                 return;
             default:
                 advance();
@@ -539,11 +541,23 @@ StmtPtr Parser::parse_stmt() {
     switch (peek().kind) {
         case TokenKind::KwLet:
         case TokenKind::KwVar:    return parse_var_decl_stmt();
-        case TokenKind::KwReturn: return parse_return_stmt();
-        case TokenKind::KwIf:     return parse_if_stmt();
-        case TokenKind::KwWhile:  return parse_while_stmt();
-        case TokenKind::KwFor:    return parse_for_stmt();
-        case TokenKind::At:       return parse_engine_block_stmt();
+        case TokenKind::KwReturn:   return parse_return_stmt();
+        case TokenKind::KwIf:       return parse_if_stmt();
+        case TokenKind::KwWhile:    return parse_while_stmt();
+        case TokenKind::KwFor:      return parse_for_stmt();
+        case TokenKind::At:         return parse_engine_block_stmt();
+        case TokenKind::KwBreak: {
+            auto s = std::make_unique<BreakStmt>();
+            s->loc = cur_loc();
+            advance();
+            return s;
+        }
+        case TokenKind::KwContinue: {
+            auto s = std::make_unique<ContinueStmt>();
+            s->loc = cur_loc();
+            advance();
+            return s;
+        }
         case TokenKind::KwFn: {
             // Named inner function: fn name(params) { body }
             // Desugar to: var name = fn(params) { body }
@@ -885,7 +899,7 @@ ExprPtr Parser::parse_multiplication() {
 }
 
 ExprPtr Parser::parse_unary() {
-    if (check(TokenKind::Bang) || check(TokenKind::Minus)) {
+    if (check(TokenKind::Bang) || check(TokenKind::Minus) || check(TokenKind::Hash)) {
         TokenKind op  = peek().kind;
         SourceLoc loc = cur_loc();
         advance();
@@ -1013,6 +1027,19 @@ ExprPtr Parser::parse_primary() {
         advance();
         auto node = std::make_unique<SelfExpr>();
         node->loc = loc;
+        return node;
+    }
+
+    // Array literal: [a, b, c]
+    if (check(TokenKind::LBracket)) {
+        advance(); // consume '['
+        auto node = std::make_unique<ArrayExpr>();
+        node->loc = loc;
+        while (!check(TokenKind::RBracket) && !check(TokenKind::Eof)) {
+            node->elements.push_back(parse_expr());
+            if (!match(TokenKind::Comma)) break;
+        }
+        expect(TokenKind::RBracket, "expected ']' to close array literal");
         return node;
     }
 

@@ -387,6 +387,28 @@ void Compiler::compile_stmt(const Stmt& stmt) {
         compile_engine_block(*s);
     } else if (auto* s = dynamic_cast<const BlockStmt*>(&stmt)) {
         compile_block(s->block);
+    } else if (dynamic_cast<const BreakStmt*>(&stmt)) {
+        if (cur_fn_->break_patches.empty()) {
+            error(stmt.loc, "'break' outside of loop");
+        } else {
+            size_t idx = emit_sBx(Op::Jump, 0, stmt.loc.line);
+            cur_fn_->break_patches.back().push_back({idx});
+        }
+    } else if (dynamic_cast<const ContinueStmt*>(&stmt)) {
+        if (cur_fn_->continue_targets.empty()) {
+            error(stmt.loc, "'continue' outside of loop");
+        } else {
+            int target = cur_fn_->continue_targets.back();
+            if (target >= 0) {
+                // Target is known (while loop) — emit direct jump
+                int offset = target - (int)current_pc() - 1;
+                emit_sBx(Op::Jump, offset, stmt.loc.line);
+            } else {
+                // Target not yet known (for loop increment) — use patch list
+                size_t idx = emit_sBx(Op::Jump, 0, stmt.loc.line);
+                cur_fn_->continue_patches.back().push_back({idx});
+            }
+        }
     } else if (auto* s = dynamic_cast<const ExprStmt*>(&stmt)) {
         uint8_t r = alloc_reg();
         compile_expr(*s->expr, r);
@@ -437,6 +459,11 @@ void Compiler::compile_if(const IfStmt& s) {
 void Compiler::compile_while(const WhileStmt& s) {
     int loop_start = current_pc();
 
+    // Push loop context for break/continue
+    cur_fn_->break_patches.push_back({});
+    cur_fn_->continue_patches.push_back({});
+    cur_fn_->continue_targets.push_back(loop_start);
+
     uint8_t cond_reg = alloc_reg();
     compile_expr(*s.cond, cond_reg);
     size_t exit_jump = emit_jump(Op::JumpFalse, cond_reg, s.loc.line);
@@ -444,11 +471,18 @@ void Compiler::compile_while(const WhileStmt& s) {
 
     compile_block(s.body);
 
-    // Jump back to loop start
+    // Jump back to loop start (also the continue target)
     int offset = loop_start - current_pc() - 1;
     emit_sBx(Op::Jump, offset, s.loc.line);
 
     patch_jump(exit_jump);
+
+    // Patch all breaks to here (after loop)
+    for (auto& bp : cur_fn_->break_patches.back())
+        patch_jump(bp.instr_idx);
+    cur_fn_->break_patches.pop_back();
+    cur_fn_->continue_patches.pop_back();
+    cur_fn_->continue_targets.pop_back();
 }
 
 void Compiler::compile_for(const ForStmt& s) {
@@ -482,6 +516,12 @@ void Compiler::compile_for(const ForStmt& s) {
 
         int loop_start = current_pc();
 
+        // Push loop context — continue target is the increment step, which we'll
+        // record after the body. For now push a sentinel (-1) and fix it up.
+        cur_fn_->break_patches.push_back({});
+        cur_fn_->continue_patches.push_back({});
+        cur_fn_->continue_targets.push_back(-1); // filled in after body
+
         // cmp_reg = iter_reg < limit_reg  (for ..<) or <= (for ..)
         Op cmp_op = exclusive ? Op::Lt : Op::Le;
         emit_ABC(cmp_op, cmp_reg, iter_reg, limit_reg, s.loc.line);
@@ -498,6 +538,16 @@ void Compiler::compile_for(const ForStmt& s) {
 
         pop_scope();
 
+        // The increment step — this is the continue target
+        int increment_pc = current_pc();
+        cur_fn_->continue_targets.back() = increment_pc;
+        // Patch all pending continue jumps to land here
+        auto& code = cur_fn_->proto->code;
+        for (auto& cp : cur_fn_->continue_patches.back()) {
+            int off = increment_pc - (int)cp.instr_idx - 1;
+            code[cp.instr_idx] = encode_AsBx(Op::Jump, 0, off);
+        }
+
         // iter = iter + 1
         uint16_t k1 = add_constant(Value::from_int(1));
         uint8_t one_reg = alloc_reg();
@@ -505,26 +555,89 @@ void Compiler::compile_for(const ForStmt& s) {
         emit_ABC(Op::Add, iter_reg, iter_reg, one_reg, s.loc.line);
         free_reg(one_reg);
 
-        // Jump back
+        // Jump back to condition check
         int offset = loop_start - current_pc() - 1;
         emit_sBx(Op::Jump, offset, s.loc.line);
         patch_jump(exit_jump);
+
+        // Patch breaks to here
+        for (auto& bp : cur_fn_->break_patches.back())
+            patch_jump(bp.instr_idx);
+        cur_fn_->break_patches.pop_back();
+        cur_fn_->continue_patches.pop_back();
+        cur_fn_->continue_targets.pop_back();
 
         free_reg(cmp_reg);
         free_reg(limit_reg);
         free_reg(iter_reg);
     } else {
-        // General iterable: compile and iterate via table/array
-        // For Phase 2, just compile the iterable and body without iteration logic
-        uint8_t iter_reg = alloc_reg();
-        compile_expr(*s.iterable, iter_reg);
+        // General iterable: table/array — emit an index-based loop
+        //   tbl  = iterable
+        //   idx  = 0
+        //   len  = #tbl
+        //   loop:
+        //     if idx >= len: exit
+        //     var = tbl[idx]
+        //     body
+        //   continue_target:
+        //     idx = idx + 1
+        //     jump loop
+        uint8_t tbl_reg  = alloc_reg();
+        uint8_t idx_reg  = alloc_reg();
+        uint8_t len_reg  = alloc_reg();
+        uint8_t cmp_reg  = alloc_reg();
+
+        compile_expr(*s.iterable, tbl_reg);
+        emit_AsBx(Op::LoadInt, idx_reg, 0, s.loc.line);  // idx = 0
+        emit_ABC(Op::TLen, len_reg, tbl_reg, 0, s.loc.line);
+
+        int loop_start = current_pc();
+
+        cur_fn_->break_patches.push_back({});
+        cur_fn_->continue_patches.push_back({});
+        cur_fn_->continue_targets.push_back(-1); // filled after body
+
+        // if idx >= len: exit  (i.e. exit if NOT idx < len)
+        emit_ABC(Op::Lt, cmp_reg, idx_reg, len_reg, s.loc.line);
+        size_t exit_jump = emit_jump(Op::JumpFalse, cmp_reg, s.loc.line);
+
         push_scope();
         uint8_t var_reg = alloc_reg();
-        emit_ABx(Op::LoadNil, var_reg, 0, s.loc.line);
+        emit_ABC(Op::GetIndex, var_reg, tbl_reg, idx_reg, s.loc.line);
         define_local(s.var_name, var_reg, s.binding_is_let);
         for (auto& stmt : s.body.stmts) compile_stmt(*stmt);
         pop_scope();
-        free_reg(iter_reg);
+
+        // Increment step — continue target
+        int increment_pc = current_pc();
+        cur_fn_->continue_targets.back() = increment_pc;
+        for (auto& cp : cur_fn_->continue_patches.back()) {
+            auto& code = cur_fn_->proto->code;
+            int off = increment_pc - (int)cp.instr_idx - 1;
+            code[cp.instr_idx] = encode_AsBx(Op::Jump, 0, off);
+        }
+
+        uint16_t k1 = add_constant(Value::from_int(1));
+        uint8_t  one_reg = alloc_reg();
+        emit_ABx(Op::LoadK, one_reg, k1, s.loc.line);
+        emit_ABC(Op::Add, idx_reg, idx_reg, one_reg, s.loc.line);
+        free_reg(one_reg);
+
+        // Jump back to condition
+        int offset = loop_start - current_pc() - 1;
+        emit_sBx(Op::Jump, offset, s.loc.line);
+        patch_jump(exit_jump);
+
+        for (auto& bp : cur_fn_->break_patches.back())
+            patch_jump(bp.instr_idx);
+        cur_fn_->break_patches.pop_back();
+        cur_fn_->continue_patches.pop_back();
+        cur_fn_->continue_targets.pop_back();
+
+        free_reg(cmp_reg);
+        free_reg(len_reg);
+        free_reg(idx_reg);
+        free_reg(tbl_reg);
     }
 }
 
@@ -571,6 +684,8 @@ uint8_t Compiler::compile_expr(const Expr& expr, std::optional<uint8_t> dest) {
         return compile_lambda(*e, dest);
     if (auto* e = dynamic_cast<const GroupExpr*>(&expr))
         return compile_group(*e, dest);
+    if (auto* e = dynamic_cast<const ArrayExpr*>(&expr))
+        return compile_array(*e, dest);
     if (auto* e = dynamic_cast<const IndexExpr*>(&expr)) {
         uint8_t obj = compile_expr(*e->object);
         uint8_t idx = compile_expr(*e->index);
@@ -714,8 +829,12 @@ uint8_t Compiler::compile_binary(const BinaryExpr& e, std::optional<uint8_t> des
 uint8_t Compiler::compile_unary(const UnaryExpr& e, std::optional<uint8_t> dest) {
     uint8_t operand = compile_expr(*e.operand);
     uint8_t reg = dest ? *dest : alloc_reg();
-    Op op = (e.op == TokenKind::Bang) ? Op::Not : Op::Neg;
-    emit_ABC(op, reg, operand, 0, e.loc.line);
+    if (e.op == TokenKind::Hash) {
+        emit_ABC(Op::TLen, reg, operand, 0, e.loc.line);
+    } else {
+        Op op = (e.op == TokenKind::Bang) ? Op::Not : Op::Neg;
+        emit_ABC(op, reg, operand, 0, e.loc.line);
+    }
     free_reg(operand);
     return reg;
 }
@@ -963,6 +1082,30 @@ uint8_t Compiler::compile_lambda(const LambdaExpr& e, std::optional<uint8_t> des
 
 uint8_t Compiler::compile_group(const GroupExpr& e, std::optional<uint8_t> dest) {
     return compile_expr(*e.inner, dest);
+}
+
+uint8_t Compiler::compile_array(const ArrayExpr& e, std::optional<uint8_t> dest) {
+    uint8_t reg = dest.value_or(alloc_reg());
+    // R[reg] = {}
+    emit_ABx(Op::NewTable, reg, 0, e.loc.line);
+
+    // Emit each element as table.push equivalent:
+    //   elem_reg = element value
+    //   SetIndex R[reg][idx] = elem_reg   (using TLen to get current length)
+    // Simpler: use a counter at compile time — index 0, 1, 2, ...
+    for (size_t i = 0; i < e.elements.size(); ++i) {
+        uint8_t elem_reg = alloc_reg();
+        compile_expr(*e.elements[i], elem_reg);
+
+        uint8_t idx_reg = alloc_reg();
+        uint16_t k = add_constant(Value::from_int((int64_t)i));
+        emit_ABx(Op::LoadK, idx_reg, k, e.loc.line);
+        emit_ABC(Op::SetIndex, reg, idx_reg, elem_reg, e.loc.line);
+        free_reg(idx_reg);
+        free_reg(elem_reg);
+    }
+
+    return reg;
 }
 
 } // namespace zscript

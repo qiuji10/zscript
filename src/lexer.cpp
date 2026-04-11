@@ -21,8 +21,11 @@ static const std::unordered_map<std::string, TokenKind> keywords = {
     {"trait",  TokenKind::KwTrait},
     {"impl",   TokenKind::KwImpl},
     {"self",   TokenKind::KwSelf},
-    {"mut",    TokenKind::KwMut},
-    {"import", TokenKind::KwImport},
+    {"mut",      TokenKind::KwMut},
+    {"import",   TokenKind::KwImport},
+    {"break",    TokenKind::KwBreak},
+    {"continue", TokenKind::KwContinue},
+    {"not",      TokenKind::Bang},   // 'not' is an alias for '!'
     {"true",   TokenKind::LitTrue},
     {"false",  TokenKind::LitFalse},
     {"nil",    TokenKind::LitNil},
@@ -349,6 +352,10 @@ Token Lexer::scan_next() {
             if (match('=')) return make(TokenKind::NotEq, "!=");
             if (match('.')) return make(TokenKind::BangDot, "!.");
             return make(TokenKind::Bang, "!");
+
+        // --- hash / length operator ---
+        case '#':
+            return make(TokenKind::Hash, "#");
 
         // --- question / safe-call ---
         case '?':

@@ -27,6 +27,8 @@ const char* token_kind_name(TokenKind k) {
         case TokenKind::KwSelf:       return "self";
         case TokenKind::KwMut:        return "mut";
         case TokenKind::KwImport:     return "import";
+        case TokenKind::KwBreak:      return "break";
+        case TokenKind::KwContinue:   return "continue";
         case TokenKind::LBrace:       return "{";
         case TokenKind::RBrace:       return "}";
         case TokenKind::LParen:       return "(";
