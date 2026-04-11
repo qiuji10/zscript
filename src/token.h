@@ -82,6 +82,9 @@ enum class TokenKind : uint16_t {
     Assign,       // =
     PlusAssign,   // +=
     MinusAssign,  // -=
+    StarAssign,   // *=
+    SlashAssign,  // /=
+    PercentAssign,// %=
 
     // --- Null safety ---
     Question,     // ?        (nullable type marker)

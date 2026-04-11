@@ -726,6 +726,8 @@ uint8_t Compiler::compile_expr(const Expr& expr, std::optional<uint8_t> dest) {
         return compile_lambda(*e, dest);
     if (auto* e = dynamic_cast<const GroupExpr*>(&expr))
         return compile_group(*e, dest);
+    if (auto* e = dynamic_cast<const IfExpr*>(&expr))
+        return compile_if_expr(*e, dest);
     if (auto* e = dynamic_cast<const ArrayExpr*>(&expr))
         return compile_array(*e, dest);
     if (auto* e = dynamic_cast<const TableExpr*>(&expr))
@@ -886,14 +888,17 @@ uint8_t Compiler::compile_unary(const UnaryExpr& e, std::optional<uint8_t> dest)
 // Map a compound assignment op to its arithmetic opcode.
 static Op compound_op(TokenKind k) {
     switch (k) {
-        case TokenKind::PlusAssign:  return Op::Add;
-        case TokenKind::MinusAssign: return Op::Sub;
-        default:                     return Op::Nop; // plain =
+        case TokenKind::PlusAssign:    return Op::Add;
+        case TokenKind::MinusAssign:   return Op::Sub;
+        case TokenKind::StarAssign:    return Op::Mul;
+        case TokenKind::SlashAssign:   return Op::Div;
+        case TokenKind::PercentAssign: return Op::Mod;
+        default:                       return Op::Nop;
     }
 }
 
 uint8_t Compiler::compile_assign(const AssignExpr& e, std::optional<uint8_t> dest) {
-    bool is_compound = (e.op == TokenKind::PlusAssign || e.op == TokenKind::MinusAssign);
+    bool is_compound = (e.op != TokenKind::Assign);
 
     // Simple identifier assignment
     if (auto* id = dynamic_cast<const IdentExpr*>(e.target.get())) {
@@ -1189,6 +1194,71 @@ uint8_t Compiler::compile_lambda(const LambdaExpr& e, std::optional<uint8_t> des
 
 uint8_t Compiler::compile_group(const GroupExpr& e, std::optional<uint8_t> dest) {
     return compile_expr(*e.inner, dest);
+}
+
+uint8_t Compiler::compile_if_expr(const IfExpr& e, std::optional<uint8_t> dest) {
+    uint8_t result = dest.value_or(alloc_reg());
+
+    // Compile a block as a value: all but last stmt run normally;
+    // last stmt is evaluated into `result`. Handles ExprStmt, IfStmt (recursive).
+    std::function<void(const Block&)> compile_branch = [&](const Block& block) {
+        if (block.stmts.empty()) {
+            emit_ABx(Op::LoadNil, result, 0, e.loc.line);
+            return;
+        }
+        for (size_t i = 0; i + 1 < block.stmts.size(); ++i)
+            compile_stmt(*block.stmts[i]);
+        auto* last = block.stmts.back().get();
+        if (auto* es = dynamic_cast<const ExprStmt*>(last)) {
+            compile_expr(*es->expr, result);
+        } else if (auto* is = dynamic_cast<const IfStmt*>(last)) {
+            // Nested if statement used as value — compile it as an if-expr.
+            // Build a synthetic IfExpr and recurse.
+            IfExpr nested;
+            nested.loc        = is->loc;
+            // We can't move from IfStmt (AST is const), so compile inline.
+            uint8_t c = alloc_reg();
+            compile_expr(*is->cond, c);
+            size_t jf = emit_jump(Op::JumpFalse, c, is->loc.line);
+            free_reg(c);
+            push_scope();
+            compile_branch(is->then_block);
+            pop_scope();
+            size_t je = emit_sBx(Op::Jump, 0, is->loc.line);
+            patch_jump(jf);
+            if (is->else_clause) {
+                if (auto* bs = dynamic_cast<const BlockStmt*>(is->else_clause.get())) {
+                    push_scope(); compile_branch(bs->block); pop_scope();
+                } else {
+                    // else if — compile the else clause as a stmt and load nil
+                    compile_stmt(*is->else_clause);
+                    emit_ABx(Op::LoadNil, result, 0, is->loc.line);
+                }
+            } else {
+                emit_ABx(Op::LoadNil, result, 0, is->loc.line);
+            }
+            patch_jump(je);
+        } else {
+            compile_stmt(*last);
+            emit_ABx(Op::LoadNil, result, 0, e.loc.line);
+        }
+    };
+
+    // Condition
+    uint8_t cond_reg = alloc_reg();
+    compile_expr(*e.cond, cond_reg);
+    size_t jump_false = emit_jump(Op::JumpFalse, cond_reg, e.loc.line);
+    free_reg(cond_reg);
+
+    push_scope(); compile_branch(e.then_block); pop_scope();
+
+    size_t jump_end = emit_sBx(Op::Jump, 0, e.loc.line);
+    patch_jump(jump_false);
+
+    push_scope(); compile_branch(e.else_block); pop_scope();
+
+    patch_jump(jump_end);
+    return result;
 }
 
 uint8_t Compiler::compile_table_expr(const TableExpr& e, std::optional<uint8_t> dest) {

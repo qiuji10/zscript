@@ -156,6 +156,13 @@ struct GroupExpr : Expr {
     ExprPtr inner;
 };
 
+// if as expression: if cond { a } else { b }
+struct IfExpr : Expr {
+    ExprPtr cond;
+    Block   then_block;
+    Block   else_block;  // else is required for expression form
+};
+
 // Array literal: [a, b, c]
 struct ArrayExpr : Expr {
     std::vector<ExprPtr> elements;

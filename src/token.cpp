@@ -61,8 +61,11 @@ const char* token_kind_name(TokenKind k) {
         case TokenKind::Or:           return "||";
         case TokenKind::Bang:         return "!";
         case TokenKind::Assign:       return "=";
-        case TokenKind::PlusAssign:   return "+=";
-        case TokenKind::MinusAssign:  return "-=";
+        case TokenKind::PlusAssign:    return "+=";
+        case TokenKind::MinusAssign:   return "-=";
+        case TokenKind::StarAssign:    return "*=";
+        case TokenKind::SlashAssign:   return "/=";
+        case TokenKind::PercentAssign: return "%=";
         case TokenKind::Question:     return "?";
         case TokenKind::QDot:         return "?.";
         case TokenKind::BangDot:      return "!.";

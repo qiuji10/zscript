@@ -806,7 +806,9 @@ ExprPtr Parser::parse_expr() {
 ExprPtr Parser::parse_assign() {
     ExprPtr left = parse_or();
 
-    if (check(TokenKind::Assign) || check(TokenKind::PlusAssign) || check(TokenKind::MinusAssign)) {
+    if (check(TokenKind::Assign)       || check(TokenKind::PlusAssign)  ||
+        check(TokenKind::MinusAssign)  || check(TokenKind::StarAssign)  ||
+        check(TokenKind::SlashAssign)  || check(TokenKind::PercentAssign)) {
         TokenKind op  = peek().kind;
         SourceLoc loc = cur_loc();
         advance();
@@ -1055,6 +1057,18 @@ ExprPtr Parser::parse_postfix() {
 // Primary: literal, ident, self, (expr), lambda
 ExprPtr Parser::parse_primary() {
     SourceLoc loc = cur_loc();
+
+    // if as expression: if cond { then } else { else }
+    if (check(TokenKind::KwIf)) {
+        advance(); // consume 'if'
+        auto node = std::make_unique<IfExpr>();
+        node->loc  = loc;
+        node->cond = parse_expr();
+        node->then_block = parse_block();
+        expect(TokenKind::KwElse, "expected 'else' in if-expression");
+        node->else_block = parse_block();
+        return node;
+    }
 
     // Lambda: fn(params) { body }
     if (check(TokenKind::KwFn)) return parse_lambda();

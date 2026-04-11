@@ -312,9 +312,15 @@ Token Lexer::scan_next() {
         case ',': return make(TokenKind::Comma,     ",");
         case ';': return make(TokenKind::Semicolon, ";");
         case '@': return make(TokenKind::At,        "@");
-        case '%': return make(TokenKind::Percent,   "%");
-        case '*': return make(TokenKind::Star,      "*");
-        case '/': return make(TokenKind::Slash,     "/");
+        case '%':
+            if (match('=')) return make(TokenKind::PercentAssign, "%=");
+            return make(TokenKind::Percent, "%");
+        case '*':
+            if (match('=')) return make(TokenKind::StarAssign, "*=");
+            return make(TokenKind::Star, "*");
+        case '/':
+            if (match('=')) return make(TokenKind::SlashAssign, "/=");
+            return make(TokenKind::Slash, "/");
 
         // --- colon ---
         case ':': return make(TokenKind::Colon, ":");

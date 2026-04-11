@@ -185,7 +185,7 @@
         },
         {
           "name": "keyword.operator.assignment.zscript",
-          "match": "\\+=|-=|="
+          "match": "\\+=|-=|\\*=|/=|%=|="
         },
         {
           "name": "keyword.operator.comparison.zscript",
