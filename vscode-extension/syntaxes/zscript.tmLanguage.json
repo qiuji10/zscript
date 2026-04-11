@@ -90,6 +90,10 @@
           "match": "\\b(and|or|not)\\b"
         },
         {
+          "name": "keyword.operator.type.zscript",
+          "match": "\\bis\\b"
+        },
+        {
           "name": "variable.language.zscript",
           "match": "\\bself\\b"
         }

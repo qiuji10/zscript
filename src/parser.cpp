@@ -990,7 +990,7 @@ ExprPtr Parser::parse_and() {
 
 ExprPtr Parser::parse_equality() {
     ExprPtr left = parse_comparison();
-    while (check(TokenKind::Eq) || check(TokenKind::NotEq)) {
+    while (check(TokenKind::Eq) || check(TokenKind::NotEq) || check(TokenKind::KwIs)) {
         TokenKind op  = peek().kind;
         SourceLoc loc = cur_loc();
         advance();

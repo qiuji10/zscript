@@ -239,9 +239,24 @@ void Compiler::compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line
 
     push_scope();
     // Parameters occupy the first registers
+    std::vector<uint8_t> param_regs;
     for (auto& param : fn.params) {
         uint8_t r = alloc_reg();
         define_local(param.name, r, !param.is_mut);
+        param_regs.push_back(r);
+    }
+    // Emit default-value guards: if param is nil, assign the default
+    for (size_t i = 0; i < fn.params.size(); ++i) {
+        const auto& param = fn.params[i];
+        if (!param.default_val || param.is_vararg) continue;
+        uint8_t r   = param_regs[i];
+        uint8_t cmp = alloc_reg();
+        emit_ABx(Op::LoadNil, cmp, 0, param.loc.line);
+        emit_ABC(Op::Eq, cmp, r, cmp, param.loc.line);  // cmp = (arg == nil)
+        size_t jmp = emit_jump(Op::JumpFalse, cmp, param.loc.line); // skip if provided
+        free_reg(cmp);
+        compile_expr(*param.default_val, r);
+        patch_jump(jmp);
     }
 
     compile_block(fn.body);
@@ -336,9 +351,24 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
         uint8_t self_reg = alloc_reg();
         define_local("self", self_reg, /*is_let=*/false);
         // Remaining registers = declared params
+        std::vector<uint8_t> method_param_regs;
         for (auto& param : fn->params) {
             uint8_t r = alloc_reg();
             define_local(param.name, r, !param.is_mut);
+            method_param_regs.push_back(r);
+        }
+        // Default-value guards
+        for (size_t i = 0; i < fn->params.size(); ++i) {
+            const auto& param = fn->params[i];
+            if (!param.default_val || param.is_vararg) continue;
+            uint8_t r   = method_param_regs[i];
+            uint8_t cmp = alloc_reg();
+            emit_ABx(Op::LoadNil, cmp, 0, param.loc.line);
+            emit_ABC(Op::Eq, cmp, r, cmp, param.loc.line);
+            size_t jmp = emit_jump(Op::JumpFalse, cmp, param.loc.line);
+            free_reg(cmp);
+            compile_expr(*param.default_val, r);
+            patch_jump(jmp);
         }
         compile_block(fn->body);
         if (fn_proto->code.empty() ||
@@ -1074,6 +1104,23 @@ uint8_t Compiler::compile_binary(const BinaryExpr& e, std::optional<uint8_t> des
         return reg;
     }
 
+    // is-instance check: obj is ClassName
+    if (e.op == TokenKind::KwIs) {
+        uint8_t reg  = dest ? *dest : alloc_reg();
+        uint8_t lreg = compile_expr(*e.left);
+        // Right side must be an identifier (class name)
+        std::string class_name;
+        if (auto* id = dynamic_cast<const IdentExpr*>(e.right.get())) {
+            class_name = id->name;
+        } else {
+            throw std::runtime_error("'is' operator requires a class name on the right");
+        }
+        uint16_t kidx = str_const(class_name);
+        emit_ABC(Op::IsInstance, reg, lreg, (uint8_t)kidx, e.loc.line);
+        free_reg(lreg);
+        return reg;
+    }
+
     // Range operators: treated as table construction in Phase 2 (VM just needs the pair)
     // For now emit the left operand — full iteration is handled in compile_for.
     if (e.op == TokenKind::DotDot || e.op == TokenKind::DotDotLt) {
@@ -1429,9 +1476,23 @@ uint8_t Compiler::compile_lambda(const LambdaExpr& e, std::optional<uint8_t> des
     cur_fn_ = &child_fs;
 
     push_scope();
+    std::vector<uint8_t> param_regs;
     for (auto& param : e.params) {
         uint8_t r = alloc_reg();
         define_local(param.name, r, !param.is_mut);
+        param_regs.push_back(r);
+    }
+    for (size_t i = 0; i < e.params.size(); ++i) {
+        const auto& param = e.params[i];
+        if (!param.default_val || param.is_vararg) continue;
+        uint8_t r   = param_regs[i];
+        uint8_t cmp = alloc_reg();
+        emit_ABx(Op::LoadNil, cmp, 0, param.loc.line);
+        emit_ABC(Op::Eq, cmp, r, cmp, param.loc.line);
+        size_t jmp = emit_jump(Op::JumpFalse, cmp, param.loc.line);
+        free_reg(cmp);
+        compile_expr(*param.default_val, r);
+        patch_jump(jmp);
     }
 
     compile_block(e.body);

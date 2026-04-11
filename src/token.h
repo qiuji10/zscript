@@ -43,6 +43,7 @@ enum class TokenKind : uint16_t {
     KwTry,        // try
     KwCatch,      // catch
     KwEnum,       // enum
+    KwIs,         // is  (type check: obj is ClassName)
 
     // --- Punctuation / Delimiters ---
     LBrace,       // {
@@ -134,7 +135,7 @@ struct Token {
     SourceLoc   loc;
 
     bool is(TokenKind k)  const { return kind == k; }
-    bool is_keyword()     const { return kind >= TokenKind::KwLet && kind <= TokenKind::KwEnum; }
+    bool is_keyword()     const { return kind >= TokenKind::KwLet && kind <= TokenKind::KwIs; }
     bool is_literal()     const { return kind >= TokenKind::LitInt && kind <= TokenKind::LitNil; }
 };
 

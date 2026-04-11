@@ -105,6 +105,9 @@ enum class Op : uint8_t {
     PushTry,      // A sBx           A=catch_reg, sBx=offset to catch block; push try frame
     PopTry,       //                 pop try frame (end of try block)
 
+    // --- Type check ---
+    IsInstance,   // A B C   R[A] = (R[B] is instance of class named K[C])
+
     // --- Misc ---
     Nop,
 

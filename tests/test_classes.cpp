@@ -264,3 +264,107 @@ TEST_CASE("string method lower via dot syntax", "[classes][methods]") {
     )"));
     CHECK(c.g("l").as_string() == "world");
 }
+
+// ---------------------------------------------------------------------------
+// is type check operator
+// ---------------------------------------------------------------------------
+
+TEST_CASE("is operator: direct class match", "[classes][is]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Cat {}
+        let cat = Cat()
+        var result = cat is Cat
+    )"));
+    CHECK(c.g("result").as_bool() == true);
+}
+
+TEST_CASE("is operator: wrong class returns false", "[classes][is]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Dog {}
+        class Cat {}
+        let dog = Dog()
+        var result = dog is Cat
+    )"));
+    CHECK(c.g("result").as_bool() == false);
+}
+
+TEST_CASE("is operator: instance is also instance of parent", "[classes][is]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Animal {}
+        class Dog : Animal {}
+        let d = Dog()
+        var is_dog    = d is Dog
+        var is_animal = d is Animal
+    )"));
+    CHECK(c.g("is_dog").as_bool()    == true);
+    CHECK(c.g("is_animal").as_bool() == true);
+}
+
+TEST_CASE("is operator: multi-level inheritance chain", "[classes][is]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class A {}
+        class B : A {}
+        class C : B {}
+        let obj = C()
+        var is_c = obj is C
+        var is_b = obj is B
+        var is_a = obj is A
+    )"));
+    CHECK(c.g("is_c").as_bool() == true);
+    CHECK(c.g("is_b").as_bool() == true);
+    CHECK(c.g("is_a").as_bool() == true);
+}
+
+TEST_CASE("is operator: sibling class returns false", "[classes][is]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Base {}
+        class Left : Base {}
+        class Right : Base {}
+        let l = Left()
+        var l_is_left  = l is Left
+        var l_is_right = l is Right
+        var l_is_base  = l is Base
+    )"));
+    CHECK(c.g("l_is_left").as_bool()  == true);
+    CHECK(c.g("l_is_right").as_bool() == false);
+    CHECK(c.g("l_is_base").as_bool()  == true);
+}
+
+// ---------------------------------------------------------------------------
+// Default parameter values
+// ---------------------------------------------------------------------------
+
+TEST_CASE("default param used when arg is omitted", "[classes][defaults]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn greet(name, greeting = "hello") {
+            return greeting + " " + name
+        }
+        var r1 = greet("world")
+        var r2 = greet("world", "hi")
+    )"));
+    CHECK(c.g("r1").as_string() == "hello world");
+    CHECK(c.g("r2").as_string() == "hi world");
+}
+
+TEST_CASE("multiple default params", "[classes][defaults]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn make(x = 1, y = 2, z = 3) {
+            return x + y + z
+        }
+        var a = make()
+        var b = make(10)
+        var c2 = make(10, 20)
+        var d = make(10, 20, 30)
+    )"));
+    CHECK(c.g("a").as_int() == 6);
+    CHECK(c.g("b").as_int() == 15);
+    CHECK(c.g("c2").as_int() == 33);
+    CHECK(c.g("d").as_int() == 60);
+}

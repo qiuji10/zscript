@@ -1509,6 +1509,36 @@ bool VM::run() {
                     break;
                 }
 
+                case Op::IsInstance: {
+                    // A=dest, B=object, C=const_idx (class name string)
+                    const std::string& class_name = K(C).as_string();
+                    Value& obj = R(B);
+                    bool result = false;
+                    if (obj.is_table()) {
+                        auto* tbl = obj.as_table();
+                        auto it = tbl->hash.find("__class__");
+                        if (it != tbl->hash.end() && it->second.is_string()) {
+                            std::string cur = it->second.as_string();
+                            while (true) {
+                                if (cur == class_name) { result = true; break; }
+                                // Look up the class prototype in globals
+                                auto git = globals_.find(cur);
+                                if (git == globals_.end() || !git->second.is_table()) break;
+                                auto* ct = git->second.as_table();
+                                // __base__ stores the parent class TABLE; get its __class__ name
+                                auto bit = ct->hash.find("__base__");
+                                if (bit == ct->hash.end() || !bit->second.is_table()) break;
+                                auto* bt = bit->second.as_table();
+                                auto cnit = bt->hash.find("__class__");
+                                if (cnit == bt->hash.end() || !cnit->second.is_string()) break;
+                                cur = cnit->second.as_string();
+                            }
+                        }
+                    }
+                    R(A) = Value::from_bool(result);
+                    break;
+                }
+
                 case Op::Nop:
                     break;
 
