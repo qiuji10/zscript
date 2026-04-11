@@ -64,6 +64,7 @@ private:
     StmtPtr parse_while_stmt();
     StmtPtr parse_for_stmt();
     StmtPtr parse_engine_block_stmt();
+    StmtPtr parse_match_stmt();
 
     // ---- expressions ----
     ExprPtr parse_expr();

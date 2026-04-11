@@ -25,6 +25,7 @@ static const std::unordered_map<std::string, TokenKind> keywords = {
     {"import",   TokenKind::KwImport},
     {"break",    TokenKind::KwBreak},
     {"continue", TokenKind::KwContinue},
+    {"match",    TokenKind::KwMatch},
     {"not",      TokenKind::Bang},   // 'not' is an alias for '!'
     {"true",   TokenKind::LitTrue},
     {"false",  TokenKind::LitFalse},

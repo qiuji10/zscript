@@ -161,6 +161,27 @@ struct ArrayExpr : Expr {
     std::vector<ExprPtr> elements;
 };
 
+// Table/dict literal: {key: val, "str_key": val2}
+struct TableExpr : Expr {
+    struct Field {
+        std::string key;   // identifier or string key
+        ExprPtr     value;
+    };
+    std::vector<Field> fields;
+};
+
+// match expr { pattern => stmt ... }
+struct MatchArm {
+    ExprPtr     pattern;   // null → wildcard (_)
+    bool        is_wild = false;
+    StmtPtr     body;      // a BlockStmt or single-stmt
+};
+
+struct MatchStmt : Stmt {
+    ExprPtr              subject;
+    std::vector<MatchArm> arms;
+};
+
 // ===========================================================================
 // Statements
 // ===========================================================================

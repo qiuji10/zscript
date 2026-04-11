@@ -78,7 +78,7 @@
       "patterns": [
         {
           "name": "keyword.control.zscript",
-          "match": "\\b(if|else|while|for|in|return|break|continue|not)\\b"
+          "match": "\\b(if|else|while|for|in|return|break|continue|not|match)\\b"
         },
         {
           "name": "keyword.declaration.zscript",

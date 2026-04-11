@@ -92,6 +92,7 @@ void Parser::synchronize() {
             case TokenKind::KwImport:
             case TokenKind::KwBreak:
             case TokenKind::KwContinue:
+            case TokenKind::KwMatch:
                 return;
             default:
                 advance();
@@ -546,6 +547,7 @@ StmtPtr Parser::parse_stmt() {
         case TokenKind::KwWhile:    return parse_while_stmt();
         case TokenKind::KwFor:      return parse_for_stmt();
         case TokenKind::At:         return parse_engine_block_stmt();
+        case TokenKind::KwMatch:    return parse_match_stmt();
         case TokenKind::KwBreak: {
             auto s = std::make_unique<BreakStmt>();
             s->loc = cur_loc();
@@ -675,6 +677,41 @@ StmtPtr Parser::parse_engine_block_stmt() {
     const Token& eng = expect(TokenKind::Ident, "expected engine name ('unity' or 'unreal')");
     stmt->engine = eng.lexeme;
     stmt->body   = parse_block();
+    return stmt;
+}
+
+StmtPtr Parser::parse_match_stmt() {
+    // match <expr> { pattern => body ... }
+    auto stmt = std::make_unique<MatchStmt>();
+    stmt->loc = cur_loc();
+    expect(TokenKind::KwMatch, "expected 'match'");
+    stmt->subject = parse_expr();
+    expect(TokenKind::LBrace, "expected '{' after match subject");
+
+    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+        MatchArm arm;
+        // wildcard: _
+        if (check(TokenKind::Ident) && peek().lexeme == "_") {
+            advance();
+            arm.is_wild = true;
+        } else {
+            arm.pattern = parse_expr();
+            arm.is_wild = false;
+        }
+        expect(TokenKind::FatArrow, "expected '=>' after match pattern");
+
+        // Body: either a block { } or a single statement
+        if (check(TokenKind::LBrace)) {
+            auto bs   = std::make_unique<BlockStmt>();
+            bs->loc   = cur_loc();
+            bs->block = parse_block();
+            arm.body  = std::move(bs);
+        } else {
+            arm.body = parse_stmt();
+        }
+        stmt->arms.push_back(std::move(arm));
+    }
+    expect(TokenKind::RBrace, "expected '}' to close match");
     return stmt;
 }
 
@@ -1028,6 +1065,39 @@ ExprPtr Parser::parse_primary() {
         auto node = std::make_unique<SelfExpr>();
         node->loc = loc;
         return node;
+    }
+
+    // Table/dict literal: {key: val, "str": val}
+    // Disambiguate from a block: look ahead for Ident/String followed by ':'
+    // Also accept empty {} as an empty table when used as expression.
+    if (check(TokenKind::LBrace)) {
+        // Peek ahead to decide: table if next is "}" (empty), or Ident/String + ":"
+        bool is_table = false;
+        if (peek(1).kind == TokenKind::RBrace) {
+            is_table = true;  // empty table literal {}
+        } else if ((peek(1).kind == TokenKind::Ident || peek(1).kind == TokenKind::LitString)
+                   && peek(2).kind == TokenKind::Colon) {
+            is_table = true;
+        }
+        if (is_table) {
+            advance(); // consume '{'
+            auto node = std::make_unique<TableExpr>();
+            node->loc = loc;
+            while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+                TableExpr::Field field;
+                if (check(TokenKind::LitString)) {
+                    field.key = advance().lexeme; // raw string value
+                } else {
+                    field.key = expect(TokenKind::Ident, "expected field name").lexeme;
+                }
+                expect(TokenKind::Colon, "expected ':' after field name");
+                field.value = parse_expr();
+                node->fields.push_back(std::move(field));
+                if (!match(TokenKind::Comma)) break;
+            }
+            expect(TokenKind::RBrace, "expected '}' to close table literal");
+            return node;
+        }
     }
 
     // Array literal: [a, b, c]

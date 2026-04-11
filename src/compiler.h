@@ -135,6 +135,7 @@ private:
     void compile_while(const WhileStmt& s);
     void compile_for(const ForStmt& s);
     void compile_engine_block(const EngineBlock& s);
+    void compile_match(const MatchStmt& s);
 
     // =========================================================================
     // Compilation — expressions
@@ -152,6 +153,7 @@ private:
     uint8_t compile_lambda(const LambdaExpr& e, std::optional<uint8_t> dest);
     uint8_t compile_group(const GroupExpr& e, std::optional<uint8_t> dest);
     uint8_t compile_array(const ArrayExpr& e, std::optional<uint8_t> dest);
+    uint8_t compile_table_expr(const TableExpr& e, std::optional<uint8_t> dest);
 
     // Emit result into dest_reg (move if necessary); returns dest_reg.
     uint8_t into(uint8_t result_reg, std::optional<uint8_t> dest);

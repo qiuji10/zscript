@@ -385,6 +385,8 @@ void Compiler::compile_stmt(const Stmt& stmt) {
         compile_for(*s);
     } else if (auto* s = dynamic_cast<const EngineBlock*>(&stmt)) {
         compile_engine_block(*s);
+    } else if (auto* s = dynamic_cast<const MatchStmt*>(&stmt)) {
+        compile_match(*s);
     } else if (auto* s = dynamic_cast<const BlockStmt*>(&stmt)) {
         compile_block(s->block);
     } else if (dynamic_cast<const BreakStmt*>(&stmt)) {
@@ -641,6 +643,46 @@ void Compiler::compile_for(const ForStmt& s) {
     }
 }
 
+void Compiler::compile_match(const MatchStmt& s) {
+    // Evaluate subject into a register
+    uint8_t subj_reg = alloc_reg();
+    compile_expr(*s.subject, subj_reg);
+
+    std::vector<size_t> done_jumps; // jumps to after the whole match
+
+    for (auto& arm : s.arms) {
+        size_t skip_jump = SIZE_MAX;
+
+        if (!arm.is_wild) {
+            // cmp_reg = (subj == pattern)
+            uint8_t pat_reg  = alloc_reg();
+            uint8_t cmp_reg  = alloc_reg();
+            compile_expr(*arm.pattern, pat_reg);
+            emit_ABC(Op::Eq, cmp_reg, subj_reg, pat_reg, s.loc.line);
+            skip_jump = emit_jump(Op::JumpFalse, cmp_reg, s.loc.line);
+            free_reg(cmp_reg);
+            free_reg(pat_reg);
+        }
+
+        // Body
+        compile_stmt(*arm.body);
+
+        // Jump past remaining arms (unless this is the last)
+        if (&arm != &s.arms.back()) {
+            done_jumps.push_back(emit_sBx(Op::Jump, 0, s.loc.line));
+        }
+
+        if (skip_jump != SIZE_MAX) {
+            patch_jump(skip_jump);
+        }
+    }
+
+    // Patch all done-jumps to here
+    for (size_t idx : done_jumps) patch_jump(idx);
+
+    free_reg(subj_reg);
+}
+
 void Compiler::compile_engine_block(const EngineBlock& s) {
     // Strip at compile time based on engine mode
     bool active = (s.engine == "unity"  && engine_ == EngineMode::Unity) ||
@@ -686,6 +728,8 @@ uint8_t Compiler::compile_expr(const Expr& expr, std::optional<uint8_t> dest) {
         return compile_group(*e, dest);
     if (auto* e = dynamic_cast<const ArrayExpr*>(&expr))
         return compile_array(*e, dest);
+    if (auto* e = dynamic_cast<const TableExpr*>(&expr))
+        return compile_table_expr(*e, dest);
     if (auto* e = dynamic_cast<const IndexExpr*>(&expr)) {
         uint8_t obj = compile_expr(*e->object);
         uint8_t idx = compile_expr(*e->index);
@@ -1082,6 +1126,20 @@ uint8_t Compiler::compile_lambda(const LambdaExpr& e, std::optional<uint8_t> des
 
 uint8_t Compiler::compile_group(const GroupExpr& e, std::optional<uint8_t> dest) {
     return compile_expr(*e.inner, dest);
+}
+
+uint8_t Compiler::compile_table_expr(const TableExpr& e, std::optional<uint8_t> dest) {
+    uint8_t reg = dest.value_or(alloc_reg());
+    emit_ABx(Op::NewTable, reg, 0, e.loc.line);
+    for (auto& field : e.fields) {
+        uint8_t val_reg = alloc_reg();
+        compile_expr(*field.value, val_reg);
+        uint16_t key_k = str_const(field.key);
+        // SetField encoding: A=table_reg, Bx=(key_k<<8)|val_reg
+        emit_ABx(Op::SetField, reg, (uint16_t)((key_k << 8) | val_reg), e.loc.line);
+        free_reg(val_reg);
+    }
+    return reg;
 }
 
 uint8_t Compiler::compile_array(const ArrayExpr& e, std::optional<uint8_t> dest) {

@@ -38,6 +38,7 @@ enum class TokenKind : uint16_t {
     KwImport,     // import
     KwBreak,      // break
     KwContinue,   // continue
+    KwMatch,      // match
 
     // --- Punctuation / Delimiters ---
     LBrace,       // {
@@ -121,7 +122,7 @@ struct Token {
     SourceLoc   loc;
 
     bool is(TokenKind k)  const { return kind == k; }
-    bool is_keyword()     const { return kind >= TokenKind::KwLet && kind <= TokenKind::KwContinue; }
+    bool is_keyword()     const { return kind >= TokenKind::KwLet && kind <= TokenKind::KwMatch; }
     bool is_literal()     const { return kind >= TokenKind::LitInt && kind <= TokenKind::LitNil; }
 };
 
