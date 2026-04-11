@@ -225,6 +225,8 @@ void Compiler::compile_top_level(const Program& prog) {
 void Compiler::compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line) {
     Proto* fn_proto = chunk_->new_proto(fn.name);
     fn_proto->num_params = (uint8_t)fn.params.size();
+    if (!fn.params.empty() && fn.params.back().is_vararg)
+        fn_proto->is_vararg = true;
 
     // New FnState
     FnState child_fs;
@@ -411,11 +413,40 @@ void Compiler::compile_stmt(const Stmt& stmt) {
                 cur_fn_->continue_patches.back().push_back({idx});
             }
         }
+    } else if (auto* s = dynamic_cast<const MultiVarDeclStmt*>(&stmt)) {
+        compile_multi_var_decl(*s);
     } else if (auto* s = dynamic_cast<const ExprStmt*>(&stmt)) {
         uint8_t r = alloc_reg();
         compile_expr(*s->expr, r);
         free_reg(r);
     }
+}
+
+void Compiler::compile_multi_var_decl(const MultiVarDeclStmt& s) {
+    uint8_t N = (uint8_t)s.names.size();
+    uint8_t first_reg = cur_reg();
+
+    // Compile the init expression (expected to be a call) into first_reg.
+    compile_expr(*s.init, first_reg);
+
+    // Patch the last Call/CallMethod instruction to expect N results instead of 1.
+    auto& code = cur_fn_->proto->code;
+    if (!code.empty()) {
+        Op last_op = instr_op(code.back());
+        if (last_op == Op::Call || last_op == Op::CallMethod) {
+            uint32_t instr = code.back();
+            code.back() = encode_ABC(last_op, instr_A(instr), instr_B(instr), N);
+        }
+    }
+
+    // Results land in first_reg..first_reg+N-1; update register watermark.
+    cur_fn_->next_reg = first_reg + N;
+    if (cur_fn_->max_reg < cur_fn_->next_reg)
+        cur_fn_->max_reg = cur_fn_->next_reg;
+
+    // Define each name as a local backed by its result register.
+    for (uint8_t i = 0; i < N; ++i)
+        define_local(s.names[i], first_reg + i, s.is_let[i]);
 }
 
 void Compiler::compile_var_decl(const VarDeclStmt& s) {
@@ -429,13 +460,22 @@ void Compiler::compile_var_decl(const VarDeclStmt& s) {
 }
 
 void Compiler::compile_return(const ReturnStmt& s) {
-    if (s.value) {
+    if (s.values.empty()) {
+        emit_ABx(Op::Return, 0, 0, s.loc.line);
+    } else if (s.values.size() == 1) {
         uint8_t reg = alloc_reg();
-        compile_expr(*s.value, reg);
+        compile_expr(*s.values[0], reg);
         emit_ABx(Op::Return, reg, 1, s.loc.line);
         free_reg(reg);
     } else {
-        emit_ABx(Op::Return, 0, 0, s.loc.line);
+        // Multi-return: emit all values into consecutive registers.
+        uint8_t first = cur_reg();
+        for (size_t i = 0; i < s.values.size(); ++i) {
+            uint8_t r = alloc_reg();
+            compile_expr(*s.values[i], r);
+        }
+        emit_ABx(Op::Return, first, (uint16_t)s.values.size(), s.loc.line);
+        cur_fn_->next_reg = first; // regs are gone after return
     }
 }
 
@@ -1151,6 +1191,8 @@ uint8_t Compiler::compile_lambda(const LambdaExpr& e, std::optional<uint8_t> des
     // Compile the lambda inline: create a new Proto directly
     Proto* fn_proto = chunk_->new_proto("<lambda>");
     fn_proto->num_params = (uint8_t)e.params.size();
+    if (!e.params.empty() && e.params.back().is_vararg)
+        fn_proto->is_vararg = true;
 
     FnState child_fs;
     child_fs.proto     = fn_proto;

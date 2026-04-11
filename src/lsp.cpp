@@ -1051,7 +1051,7 @@ static void walk_stmt_undef(const Stmt* s,
     } else if (auto* es = dynamic_cast<const ExprStmt*>(s)) {
         walk_expr_undef(es->expr.get(), known, report);
     } else if (auto* rs = dynamic_cast<const ReturnStmt*>(s)) {
-        if (rs->value) walk_expr_undef(rs->value.get(), known, report);
+        for (auto& v : rs->values) walk_expr_undef(v.get(), known, report);
     } else if (auto* ifs = dynamic_cast<const IfStmt*>(s)) {
         walk_expr_undef(ifs->cond.get(), known, report);
         walk_stmts_undef(ifs->then_block.stmts, known, report);

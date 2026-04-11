@@ -24,10 +24,11 @@ struct RuntimeError {
 // CallFrame
 // ---------------------------------------------------------------------------
 struct CallFrame {
-    Proto*    proto    = nullptr;
-    size_t    pc       = 0;
-    uint8_t   base_reg = 0;
-    ZClosure* closure  = nullptr; // nullptr for native/top-level frames
+    Proto*    proto       = nullptr;
+    size_t    pc          = 0;
+    uint8_t   base_reg    = 0;
+    uint8_t   num_results = 1;    // how many return values the caller expects
+    ZClosure* closure     = nullptr; // nullptr for native/top-level frames
 };
 
 // ---------------------------------------------------------------------------

@@ -52,6 +52,7 @@ enum class TokenKind : uint16_t {
     Comma,        // ,
     Dot,          // .
     DotDot,       // ..
+    DotDotDot,    // ...  (varargs)
     DotDotLt,     // ..<  (exclusive range)
     Arrow,        // ->
     FatArrow,     // =>

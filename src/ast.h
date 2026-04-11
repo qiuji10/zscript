@@ -58,9 +58,10 @@ struct GenericType : TypeExpr {
 // ---------------------------------------------------------------------------
 struct Param {
     std::string name;
-    bool        is_mut = false;
-    TypePtr     type;           // may be null if omitted (parse error)
-    ExprPtr     default_val;    // optional default
+    bool        is_mut    = false;
+    bool        is_vararg = false;  // ...name  (must be last param)
+    TypePtr     type;               // may be null if omitted
+    ExprPtr     default_val;        // optional default
     SourceLoc   loc;
 };
 
@@ -206,7 +207,14 @@ struct VarDeclStmt : Stmt {
 };
 
 struct ReturnStmt : Stmt {
-    ExprPtr value;  // null → bare return
+    std::vector<ExprPtr> values;  // empty → bare return; >1 → multi-return
+};
+
+// let a, b, c = expr  (multi-value destructuring)
+struct MultiVarDeclStmt : Stmt {
+    std::vector<std::string> names;
+    std::vector<bool>        is_let;   // parallel to names
+    ExprPtr                  init;     // call expression that returns multiple values
 };
 
 struct IfStmt : Stmt {

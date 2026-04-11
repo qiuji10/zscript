@@ -331,6 +331,10 @@ Token Lexer::scan_next() {
                 advance(); advance();
                 return make(TokenKind::DotDotLt, "..<");
             }
+            if (peek() == '.' && peek(1) == '.') {
+                advance(); advance();
+                return make(TokenKind::DotDotDot, "...");
+            }
             if (peek() == '.') {
                 advance();
                 return make(TokenKind::DotDot, "..");

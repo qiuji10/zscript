@@ -42,6 +42,7 @@ const char* token_kind_name(TokenKind k) {
         case TokenKind::Comma:        return ",";
         case TokenKind::Dot:          return ".";
         case TokenKind::DotDot:       return "..";
+        case TokenKind::DotDotDot:    return "...";
         case TokenKind::DotDotLt:     return "..<";
         case TokenKind::Arrow:        return "->";
         case TokenKind::FatArrow:     return "=>";

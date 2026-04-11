@@ -849,16 +849,29 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
             runtime_error("stack overflow");
         }
         CallFrame frame;
-        frame.proto    = proto;
-        frame.pc       = 0;
-        frame.base_reg = abs_base + 1; // args start at abs_base+1
-        frame.closure  = cl;
+        frame.proto       = proto;
+        frame.pc          = 0;
+        frame.base_reg    = abs_base + 1; // args start at abs_base+1
+        frame.num_results = num_results;
+        frame.closure     = cl;
         frames_.push_back(frame);
         // The callee's registers start at abs_base+1.
         // Parameters are already in abs_base+1..abs_base+num_args.
-        // Fill missing params with nil.
-        for (uint8_t i = num_args; i < proto->num_params; ++i) {
-            regs_[frame.base_reg + i] = Value::nil();
+        if (proto->is_vararg && proto->num_params > 0) {
+            uint8_t fixed = proto->num_params - 1;
+            // Bundle extra args into an array table at the vararg register.
+            Value varargs = Value::from_table();
+            auto* vt = varargs.as_table();
+            for (uint8_t i = fixed; i < num_args; ++i)
+                vt->set_index((int64_t)(i - fixed), regs_[frame.base_reg + i]);
+            vt->set("n", Value::from_int((int64_t)(num_args > fixed ? num_args - fixed : 0)));
+            // Fill fixed params with nil if under-supplied
+            for (uint8_t i = num_args; i < fixed; ++i)
+                regs_[frame.base_reg + i] = Value::nil();
+            regs_[frame.base_reg + fixed] = std::move(varargs);
+        } else {
+            for (uint8_t i = num_args; i < proto->num_params; ++i)
+                regs_[frame.base_reg + i] = Value::nil();
         }
         return true; // run() will execute the new frame
     }
@@ -897,10 +910,11 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
                 regs_[abs_base + 1] = inst; // self
 
                 CallFrame frame;
-                frame.proto    = init_proto;
-                frame.pc       = 0;
-                frame.base_reg = abs_base + 1; // self is reg 0 inside init
-                frame.closure  = init_fn.as_closure();
+                frame.proto       = init_proto;
+                frame.pc          = 0;
+                frame.base_reg    = abs_base + 1; // self is reg 0 inside init
+                frame.num_results = 1;
+                frame.closure     = init_fn.as_closure();
                 frames_.push_back(frame);
                 // Fill missing params with nil
                 for (uint8_t i = (uint8_t)(num_args + 1);
@@ -961,10 +975,11 @@ bool VM::call_method(uint8_t base_reg_offset, uint8_t user_args, uint8_t num_res
         }
 
         CallFrame frame;
-        frame.proto    = proto;
-        frame.pc       = 0;
-        frame.base_reg = self_abs;  // self at R[0], user_args at R[1..user_args]
-        frame.closure  = cl;
+        frame.proto       = proto;
+        frame.pc          = 0;
+        frame.base_reg    = self_abs;  // self at R[0], user_args at R[1..user_args]
+        frame.num_results = num_results;
+        frame.closure     = cl;
         frames_.push_back(frame);
         // Fill missing params with nil (param 0 = self already in place)
         for (uint8_t i = user_args + 1; i < proto->num_params; ++i)
@@ -1321,21 +1336,24 @@ bool VM::run() {
                 }
 
                 case Op::Return: {
-                    // A=first_result_reg, B=count (0 = return nil)
-                    Value result = (B > 0) ? R(A) : Value::nil();
-                    uint8_t this_base = base_reg;
+                    // A=first_result_reg (relative to base_reg), B=count (0 = nil)
+                    uint8_t this_base  = base_reg;
+                    uint8_t nr         = frames_.back().num_results;
                     close_upvals_above(this_base);
                     frames_.pop_back();
                     frame_changed = true;
                     // Now frame/proto are dangling — do not access them again.
                     if (!frames_.empty()) {
-                        regs_[this_base - 1] = result;
+                        uint8_t dest = this_base - 1;
+                        for (uint8_t i = 0; i < nr; ++i) {
+                            regs_[dest + i] = (B > 0 && i < B)
+                                ? regs_[this_base + A + i]
+                                : Value::nil();
+                        }
                     } else {
-                        regs_[0] = result;
+                        regs_[0] = (B > 0) ? regs_[this_base + A] : Value::nil();
                     }
-                    // If this was the init() frame for a constructor call,
-                    // restore the instance into the result register.
-                    // Match by result_reg (= this_base - 1) to handle nesting.
+                    // If this was an init() frame for a constructor, restore instance.
                     if (!ctor_stack_.empty() &&
                         ctor_stack_.back().result_reg == (uint8_t)(this_base - 1)) {
                         regs_[ctor_stack_.back().result_reg] = ctor_stack_.back().inst;

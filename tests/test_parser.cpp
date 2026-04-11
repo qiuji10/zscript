@@ -161,7 +161,8 @@ TEST_CASE("return statement", "[parser][stmts]") {
     REQUIRE(fn->body.stmts.size() == 1);
     auto* ret = as<ReturnStmt>(fn->body.stmts[0].get());
     REQUIRE(ret != nullptr);
-    auto* lit = as<LitExpr>(ret->value.get());
+    REQUIRE(ret->values.size() == 1);
+    auto* lit = as<LitExpr>(ret->values[0].get());
     REQUIRE(lit != nullptr);
     CHECK(lit->value == "42");
 }
@@ -172,7 +173,8 @@ TEST_CASE("return nil literal", "[parser][stmts]") {
     REQUIRE(fn != nullptr);
     auto* ret = as<ReturnStmt>(fn->body.stmts[0].get());
     REQUIRE(ret != nullptr);
-    auto* lit = as<LitExpr>(ret->value.get());
+    REQUIRE(ret->values.size() == 1);
+    auto* lit = as<LitExpr>(ret->values[0].get());
     REQUIRE(lit != nullptr);
     CHECK(lit->kind == LitExpr::Kind::Nil);
 }

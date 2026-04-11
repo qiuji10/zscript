@@ -361,22 +361,38 @@ DeclPtr Parser::parse_impl_decl(std::vector<Annotation> annots) {
 //   let/var name: Type = init
 // ===========================================================================
 DeclPtr Parser::parse_field_or_var_decl(std::vector<Annotation> annots, bool /*allow_init*/) {
-    auto node     = std::make_unique<FieldDecl>();
-    node->loc     = cur_loc();
-    node->annotations = std::move(annots);
-
-    node->is_let = check(TokenKind::KwLet);
+    SourceLoc loc = cur_loc();
+    bool is_let = check(TokenKind::KwLet);
     advance(); // consume let/var
 
-    node->name = expect(TokenKind::Ident, "expected variable name").lexeme;
+    std::string first_name = expect(TokenKind::Ident, "expected variable name").lexeme;
 
-    if (match(TokenKind::Colon)) {
-        node->type = parse_type();
-    }
-    if (match(TokenKind::Assign)) {
-        node->init = parse_expr();
+    // Multi-variable destructuring at top level: let a, b = foo()
+    if (check(TokenKind::Comma)) {
+        auto stmt = std::make_unique<MultiVarDeclStmt>();
+        stmt->loc = loc;
+        stmt->names.push_back(first_name);
+        stmt->is_let.push_back(is_let);
+        while (match(TokenKind::Comma)) {
+            stmt->names.push_back(expect(TokenKind::Ident, "expected variable name").lexeme);
+            stmt->is_let.push_back(is_let);
+        }
+        expect(TokenKind::Assign, "expected '=' in multi-variable declaration");
+        stmt->init = parse_expr();
+        auto node = std::make_unique<StmtDecl>();
+        node->loc = loc;
+        node->annotations = std::move(annots);
+        node->stmt = std::move(stmt);
+        return node;
     }
 
+    auto node     = std::make_unique<FieldDecl>();
+    node->loc     = loc;
+    node->annotations = std::move(annots);
+    node->is_let  = is_let;
+    node->name    = first_name;
+    if (match(TokenKind::Colon)) node->type = parse_type();
+    if (match(TokenKind::Assign)) node->init = parse_expr();
     return node;
 }
 
@@ -488,6 +504,17 @@ std::vector<Param> Parser::parse_param_list() {
     do {
         Param p;
         p.loc = cur_loc();
+        // vararg: ...name or just ...
+        if (check(TokenKind::DotDotDot)) {
+            advance();
+            p.is_vararg = true;
+            if (check(TokenKind::Ident))
+                p.name = advance().lexeme;
+            else
+                p.name = "args";
+            params.push_back(std::move(p));
+            break; // vararg must be last
+        }
         if (check(TokenKind::KwMut)) {
             p.is_mut = true;
             advance();
@@ -593,26 +620,49 @@ StmtPtr Parser::parse_stmt() {
     return stmt;
 }
 
-// let/var name: Type = expr
+// let/var name: Type = expr   or   let a, b, c = expr  (multi-decl)
 StmtPtr Parser::parse_var_decl_stmt() {
-    auto stmt    = std::make_unique<VarDeclStmt>();
-    stmt->loc    = cur_loc();
-    stmt->is_let = check(TokenKind::KwLet);
+    SourceLoc loc = cur_loc();
+    bool is_let = check(TokenKind::KwLet);
     advance();
-    stmt->name = expect(TokenKind::Ident, "expected variable name").lexeme;
+    std::string first_name = expect(TokenKind::Ident, "expected variable name").lexeme;
+
+    // Multi-variable destructuring: let a, b = foo()
+    if (check(TokenKind::Comma)) {
+        auto stmt    = std::make_unique<MultiVarDeclStmt>();
+        stmt->loc    = loc;
+        stmt->names.push_back(first_name);
+        stmt->is_let.push_back(is_let);
+        while (match(TokenKind::Comma)) {
+            stmt->names.push_back(expect(TokenKind::Ident, "expected variable name").lexeme);
+            stmt->is_let.push_back(is_let);
+        }
+        expect(TokenKind::Assign, "expected '=' in multi-variable declaration");
+        stmt->init = parse_expr();
+        return stmt;
+    }
+
+    auto stmt    = std::make_unique<VarDeclStmt>();
+    stmt->loc    = loc;
+    stmt->is_let = is_let;
+    stmt->name   = first_name;
     if (match(TokenKind::Colon)) stmt->type = parse_type();
     if (match(TokenKind::Assign)) stmt->init = parse_expr();
     return stmt;
 }
 
-// return expr?
+// return expr?  or  return x, y, z
 StmtPtr Parser::parse_return_stmt() {
     auto stmt = std::make_unique<ReturnStmt>();
     stmt->loc = cur_loc();
     expect(TokenKind::KwReturn, "expected 'return'");
-    // Value is optional — if next token starts an expression, parse it.
+    // Value(s) optional — if next token starts an expression, parse it.
     if (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
-        stmt->value = parse_expr();
+        stmt->values.push_back(parse_expr());
+        while (check(TokenKind::Comma)) {
+            advance();
+            stmt->values.push_back(parse_expr());
+        }
     }
     return stmt;
 }
