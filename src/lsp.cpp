@@ -212,23 +212,36 @@ void LspServer::on_completion(const Json& id, const Json& params) {
     };
 
     if (after_dot && !dot_object.empty()) {
-        // Dot completion: show members of the named class/variable type
-        // Look for a class with that name, or a variable whose type matches
-        auto it = idx.members.find(dot_object);
-        if (it != idx.members.end()) {
-            for (auto& sym : it->second) {
-                add_item(sym.name, sym.kind, sym.detail, "");
-            }
-        }
-        // Also search globals for a class matching the object name (PascalCase)
-        for (auto& sym : idx.globals) {
-            if (sym.kind == SymInfo::Kind::Class && sym.name == dot_object) {
-                auto mit = idx.members.find(sym.name);
-                if (mit != idx.members.end()) {
-                    for (auto& msym : mit->second) {
-                        add_item(msym.name, msym.kind, msym.detail, "");
+        // Resolve dot_object to a class name:
+        // 1. Direct match: math.X, string.X, or ClassName.X (static access)
+        // 2. Variable typed as a class: var p = Stack() → p.X shows Stack members
+        auto resolve_class = [&](const std::string& name) -> std::string {
+            // Direct members key (stdlib modules or class name itself)
+            if (idx.members.count(name)) return name;
+            // Global var_types: var x = Foo() at top level
+            auto git = idx.var_types.find(name);
+            if (git != idx.var_types.end()) return git->second;
+            // Function-scoped: try current function's locals
+            if (!text.empty()) {
+                Lexer lx2(text, "<lsp>"); auto toks2 = lx2.tokenize();
+                if (!lx2.has_errors()) {
+                    Parser pr2(std::move(toks2), "<lsp>"); Program prog2 = pr2.parse();
+                    std::string fn_key = fn_at_position(prog2, line, col);
+                    if (!fn_key.empty()) {
+                        auto lit = idx.var_types.find(fn_key + "::" + name);
+                        if (lit != idx.var_types.end()) return lit->second;
                     }
                 }
+            }
+            return "";
+        };
+
+        std::string cls = resolve_class(dot_object);
+        if (!cls.empty()) {
+            auto it = idx.members.find(cls);
+            if (it != idx.members.end()) {
+                for (auto& sym : it->second)
+                    add_item(sym.name, sym.kind, sym.detail, "");
             }
         }
     } else {
@@ -670,6 +683,22 @@ Json LspServer::compute_diagnostics(const std::string& uri, const std::string& t
     return sig;
 }
 
+// Infer a class type name from an initializer expression.
+// Returns "" when the type cannot be determined statically.
+/*static*/ std::string LspServer::infer_type(const Expr* init) {
+    if (!init) return "";
+    // Foo(...)  → "Foo"
+    if (auto* call = dynamic_cast<const CallExpr*>(init)) {
+        if (auto* id = dynamic_cast<const IdentExpr*>(call->callee.get()))
+            return id->name;
+        // Namespace.Foo(...)  → "Foo"
+        if (auto* field = dynamic_cast<const FieldExpr*>(call->callee.get()))
+            return field->field;
+    }
+    // Explicit type annotation wins: handled by caller via type_str()
+    return "";
+}
+
 SymIndex LspServer::build_index(const std::string& text) {
     Lexer lx(text, "<lsp>");
     auto toks = lx.tokenize();
@@ -799,7 +828,7 @@ SymIndex LspServer::build_index_from_prog(const Program& prog) {
                 psym.loc      = p.loc;
                 locals.push_back(psym);
             }
-            collect_fn_locals(*fn, locals);
+            collect_fn_locals(*fn, locals, fn->name, idx);
             idx.fn_locals[fn->name] = std::move(locals);
             continue;
         }
@@ -856,7 +885,7 @@ SymIndex LspServer::build_index_from_prog(const Program& prog) {
                         psym.loc      = p.loc;
                         locals.push_back(psym);
                     }
-                    collect_fn_locals(*mfn, locals);
+                    collect_fn_locals(*mfn, locals, cls->name + "." + mfn->name, idx);
                     idx.fn_locals[cls->name + "." + mfn->name] = std::move(locals);
                 }
             }
@@ -964,6 +993,9 @@ SymIndex LspServer::build_index_from_prog(const Program& prog) {
                            (sym.type_str.empty() ? "" : ": " + sym.type_str);
             sym.loc      = fd->loc;
             idx.globals.push_back(sym);
+            // Infer type for dot-completion
+            std::string inferred = sym.type_str.empty() ? infer_type(fd->init.get()) : sym.type_str;
+            if (!inferred.empty()) idx.var_types[fd->name] = inferred;
             continue;
         }
 
@@ -978,6 +1010,8 @@ SymIndex LspServer::build_index_from_prog(const Program& prog) {
                                (sym.type_str.empty() ? "" : ": " + sym.type_str);
                 sym.loc      = vd->loc;
                 idx.globals.push_back(sym);
+                std::string inferred = sym.type_str.empty() ? infer_type(vd->init.get()) : sym.type_str;
+                if (!inferred.empty()) idx.var_types[vd->name] = inferred;
             }
         }
     }
@@ -1146,7 +1180,23 @@ void LspServer::check_undefined_symbols(
     }
 }
 
-void LspServer::collect_fn_locals(const FnDecl& fn, std::vector<SymInfo>& out) {
+void LspServer::collect_fn_locals(const FnDecl& fn, std::vector<SymInfo>& out,
+                                   const std::string& fn_key, SymIndex& idx) {
+    // Helper: record inferred type for dot-completion, scoped to this function.
+    auto record_type = [&](const std::string& var_name, const std::string& ts,
+                           const Expr* init) {
+        std::string t = ts.empty() ? infer_type(init) : ts;
+        if (!t.empty())
+            idx.var_types[fn_key + "::" + var_name] = t;
+    };
+
+    // Param types
+    for (auto& p : fn.params) {
+        std::string ts = type_str(p.type.get());
+        if (!ts.empty())
+            idx.var_types[fn_key + "::" + p.name] = ts;
+    }
+
     // Walk the body's statements for VarDeclStmt
     std::function<void(const StmtList&)> walk_stmts = [&](const StmtList& stmts) {
         for (auto& s : stmts) {
@@ -1159,6 +1209,7 @@ void LspServer::collect_fn_locals(const FnDecl& fn, std::vector<SymInfo>& out) {
                                (sym.type_str.empty() ? "" : ": " + sym.type_str);
                 sym.loc      = vd->loc;
                 out.push_back(sym);
+                record_type(vd->name, sym.type_str, vd->init.get());
             } else if (auto* ifs = dynamic_cast<const IfStmt*>(s.get())) {
                 walk_stmts(ifs->then_block.stmts);
                 if (ifs->else_clause) {
@@ -1170,7 +1221,6 @@ void LspServer::collect_fn_locals(const FnDecl& fn, std::vector<SymInfo>& out) {
             } else if (auto* ws = dynamic_cast<const WhileStmt*>(s.get())) {
                 walk_stmts(ws->body.stmts);
             } else if (auto* fs = dynamic_cast<const ForStmt*>(s.get())) {
-                // The loop variable
                 SymInfo sym;
                 sym.kind   = SymInfo::Kind::Variable;
                 sym.name   = fs->var_name;

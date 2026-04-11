@@ -205,8 +205,15 @@ void Compiler::compile_top_level(const Program& prog) {
             }
         } else if (auto* sd = dynamic_cast<const StmtDecl*>(decl.get())) {
             compile_stmt(*sd->stmt);
-        } else if (dynamic_cast<const ImportDecl*>(decl.get())) {
-            // Phase 3: module system
+        } else if (auto* imp = dynamic_cast<const ImportDecl*>(decl.get())) {
+            // import module.name [as alias]
+            // Emits: R[reg] = load_module(path); Globals[alias] = R[reg]
+            uint8_t reg = alloc_reg();
+            uint16_t path_k = str_const(imp->path);
+            emit_ABx(Op::Import, reg, path_k, imp->loc.line);
+            uint16_t alias_k = str_const(imp->alias);
+            emit_ABx(Op::SetGlobal, reg, alias_k, imp->loc.line);
+            free_reg(reg);
         }
         // Trait/Impl: Phase 3
     }
@@ -851,6 +858,8 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
             uint16_t nk = str_const(field->field);
             emit_ABx(Op::GetField, m_reg,
                      (uint16_t)((s_reg << 8) | nk), field->loc.line);
+            // Reset next_reg so user-args pack tightly after self slot.
+            cur_fn_->next_reg = base + 2;
             for (auto& arg : e.args) {
                 uint8_t ar = alloc_reg();
                 compile_expr(*arg, ar);
@@ -868,6 +877,10 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
     uint8_t base = cur_reg();
     uint8_t callee_reg = alloc_reg();
     compile_expr(*e.callee, callee_reg);
+    // After compiling the callee (which may be a complex expression like a
+    // chained call), next_reg may be above base+1. Reset it so that arg
+    // registers start immediately after the callee slot.
+    cur_fn_->next_reg = base + 1;
     for (auto& arg : e.args) {
         uint8_t arg_reg = alloc_reg();
         compile_expr(*arg, arg_reg);

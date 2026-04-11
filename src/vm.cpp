@@ -118,6 +118,15 @@ bool VM::load_file(const std::string& path) {
     std::ifstream f(path);
     if (!f) { last_error_ = {"cannot open file: " + path, ""}; return false; }
     std::ostringstream ss; ss << f.rdbuf();
+
+    // Add the script's directory to the module search path so that
+    // `import utils` resolves to sibling files.
+    auto last_sep = path.find_last_of("/\\");
+    if (last_sep != std::string::npos)
+        loader_.add_search_path(path.substr(0, last_sep));
+    else
+        loader_.add_search_path(".");
+
     Lexer lexer(ss.str(), path);
     auto tokens = lexer.tokenize();
     if (lexer.has_errors()) {
@@ -564,70 +573,69 @@ void VM::open_stdlib() {
 
     tfn("len", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.empty() || !a[0].is_table()) return {Value::from_int(0)};
-        return {Value::from_int((int64_t)a[0].as_table()->count())};
+        // Return the size of the sequential array part (like Lua's #)
+        auto* t = a[0].as_table();
+        return {Value::from_int((int64_t)t->array.size())};
     });
     // push(tbl, val) — appends to numeric sequence (0,1,2,...)
     tfn("push", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.size() < 2 || !a[0].is_table()) return {};
         auto* t = a[0].as_table();
-        int64_t idx = (int64_t)t->count(); // next index
-        t->set(std::to_string(idx), a[1]);
+        int64_t idx = (int64_t)t->array.size(); // append to array part
+        t->set_index(idx, a[1]);
         return {};
     });
     // pop(tbl) — removes last numeric element
     tfn("pop", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.empty() || !a[0].is_table()) return {Value::nil()};
         auto* t = a[0].as_table();
-        if (t->count() == 0) return {Value::nil()};
-        int64_t last = (int64_t)t->count() - 1;
-        Value v = t->get(std::to_string(last));
-        t->remove(std::to_string(last));
+        if (t->array.empty()) return {Value::nil()};
+        Value v = t->array.back();
+        t->array.pop_back();
         return {v};
     });
-    // insert(tbl, idx, val)
+    // insert(tbl, idx, val) — insert into array part
     tfn("insert", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.size() < 3 || !a[0].is_table()) return {};
         auto* t = a[0].as_table();
         int64_t idx = a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float();
-        int64_t n   = (int64_t)t->count();
-        // Shift elements right
-        for (int64_t i = n; i > idx; --i)
-            t->set(std::to_string(i), t->get(std::to_string(i - 1)));
-        t->set(std::to_string(idx), a[2]);
+        if (idx < 0 || (size_t)idx > t->array.size()) return {};
+        t->array.insert(t->array.begin() + idx, a[2]);
         return {};
     });
-    // remove(tbl, idx) — shift left
+    // remove(tbl, idx?) — remove from array part
     tfn("remove", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.empty() || !a[0].is_table()) return {Value::nil()};
         auto* t = a[0].as_table();
-        int64_t n   = (int64_t)t->count();
-        int64_t idx = a.size() > 1 ? (a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float()) : n - 1;
-        Value removed = t->get(std::to_string(idx));
-        for (int64_t i = idx; i < n - 1; ++i)
-            t->set(std::to_string(i), t->get(std::to_string(i + 1)));
-        t->remove(std::to_string(n - 1));
+        if (t->array.empty()) return {Value::nil()};
+        int64_t idx = (a.size() > 1 && !a[1].is_nil())
+            ? (a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float())
+            : (int64_t)t->array.size() - 1;
+        if (idx < 0 || (size_t)idx >= t->array.size()) return {Value::nil()};
+        Value removed = t->array[(size_t)idx];
+        t->array.erase(t->array.begin() + idx);
         return {removed};
     });
-    // keys(tbl) → table of key strings
+    // keys(tbl) → table (array) of key strings
     tfn("keys", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.empty() || !a[0].is_table()) return {Value::from_table()};
         Value out = Value::from_table();
         auto* t = a[0].as_table();
-        int64_t idx = 0;
-        t->for_each([&](const std::string& k, const Value&) {
-            out.as_table()->set(std::to_string(idx++), Value::from_string(k));
-        });
+        for (auto& [k, v] : t->hash)
+            out.as_table()->array.push_back(Value::from_string(k));
+        for (size_t i = 0; i < t->array.size(); ++i)
+            out.as_table()->array.push_back(Value::from_string(std::to_string(i)));
         return {out};
     });
-    // values(tbl) → table of values
+    // values(tbl) → table (array) of values
     tfn("values", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.empty() || !a[0].is_table()) return {Value::from_table()};
         Value out = Value::from_table();
         auto* t = a[0].as_table();
-        int64_t idx = 0;
-        t->for_each([&](const std::string&, const Value& v) {
-            out.as_table()->set(std::to_string(idx++), v);
-        });
+        for (auto& [k, v] : t->hash)
+            out.as_table()->array.push_back(v);
+        for (auto& v : t->array)
+            out.as_table()->array.push_back(v);
         return {out};
     });
     // contains(tbl, key) → bool
@@ -636,33 +644,25 @@ void VM::open_stdlib() {
         std::string key = str_arg(a, 1);
         return {Value::from_bool(!a[0].as_table()->get(key).is_nil())};
     });
-    // sort(tbl) — sorts numeric sequence in-place
+    // sort(tbl) — sorts array part in-place
     tfn("sort", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.empty() || !a[0].is_table()) return {};
-        auto* t = a[0].as_table();
-        int64_t n = (int64_t)t->count();
-        std::vector<Value> arr;
-        arr.reserve((size_t)n);
-        for (int64_t i = 0; i < n; ++i) {
-            Value v = t->get(std::to_string(i));
-            if (v.is_nil()) break;
-            arr.push_back(v);
-        }
+        auto& arr = a[0].as_table()->array;
         std::sort(arr.begin(), arr.end(), [](const Value& x, const Value& y) {
+            if (x.is_string() && y.is_string()) return x.as_string() < y.as_string();
             if (x.is_int() && y.is_int()) return x.as_int() < y.as_int();
             return x.to_float() < y.to_float();
         });
-        for (int64_t i = 0; i < (int64_t)arr.size(); ++i)
-            t->set(std::to_string(i), arr[(size_t)i]);
         return {};
     });
-    // copy(tbl) — shallow copy
+    // copy(tbl) — shallow copy (both hash and array parts)
     tfn("copy", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.empty() || !a[0].is_table()) return {Value::from_table()};
         Value out = Value::from_table();
-        a[0].as_table()->for_each([&](const std::string& k, const Value& v) {
-            out.as_table()->set(k, v);
-        });
+        auto* src = a[0].as_table();
+        auto* dst = out.as_table();
+        for (auto& [k, v] : src->hash) dst->hash[k] = v;
+        dst->array = src->array;
         return {out};
     });
 
@@ -932,6 +932,16 @@ bool VM::call_method(uint8_t base_reg_offset, uint8_t user_args, uint8_t num_res
         ZClosure* cl = callee.as_closure();
         Proto* proto = cl->proto;
         if (frames_.size() >= MAX_FRAMES) runtime_error("stack overflow");
+
+        // If num_params == user_args, the closure was declared as a standalone
+        // function (no self parameter).  Call it without self: args are at
+        // abs_A+2..abs_A+1+user_args, shift them down to abs_A+1.
+        if (proto->num_params == user_args) {
+            for (uint8_t i = 0; i < user_args; ++i)
+                regs_[abs_A + 1 + i] = regs_[abs_A + 2 + i];
+            return call(base_reg_offset, user_args, num_results);
+        }
+
         CallFrame frame;
         frame.proto    = proto;
         frame.pc       = 0;
@@ -1313,6 +1323,25 @@ bool VM::run() {
                             ? proto->constants[Bx].to_string() : "?";
                         runtime_error("force unwrap on nil (accessing '" + field + "')");
                     }
+                    break;
+                }
+
+                case Op::Import: {
+                    // Bx = constant index of module name string
+                    const std::string& mod_name = proto->constants[Bx].to_string();
+                    std::string err;
+                    // execute_module clears frames_ internally; save/restore them
+                    // so the calling script can continue after the import.
+                    auto saved_frames = std::move(frames_);
+                    Module* mod = loader_.load(mod_name, *this, err);
+                    frames_ = std::move(saved_frames);
+                    frame_changed = true; // force re-snapshot on next outer iteration
+                    if (!mod) runtime_error("import failed: " + err);
+                    // Build a table from the module's exports and put it in R[A]
+                    Value tbl = Value::from_table();
+                    for (auto& [k, v] : mod->exports)
+                        tbl.as_table()->set(k, v);
+                    R(A) = std::move(tbl);
                     break;
                 }
 

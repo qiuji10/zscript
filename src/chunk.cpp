@@ -107,6 +107,7 @@ const char* op_name(Op op) {
         case Op::Closure:   return "CLOSURE";
         case Op::Concat:    return "CONCAT";
         case Op::CheckNil:  return "CHECK_NIL";
+        case Op::Import:    return "IMPORT";
         case Op::Nop:       return "NOP";
         default:            return "???";
     }

@@ -86,6 +86,10 @@ enum class Op : uint8_t {
     // Compiler strips @unity / @unreal blocks at compile time based on engine mode.
     // No runtime opcode needed.
 
+    // --- Modules ---
+    // Import: load module by name (K[Bx]), store exports table into R[A]
+    Import,       // A Bx            R[A] = load_module(K[Bx])
+
     // --- Misc ---
     Nop,
 

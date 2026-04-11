@@ -114,6 +114,10 @@ static int cmd_run(int argc, char* argv[]) {
     vm.set_engine(engine);
     vm.open_stdlib();
 
+    // Add the script's directory to the module search path for imports.
+    auto sep = file.find_last_of("/\\");
+    vm.loader().add_search_path(sep != std::string::npos ? file.substr(0, sep) : ".");
+
     if (!vm.execute(*chunk)) {
         std::cerr << "zsc: runtime error: " << vm.last_error().message << "\n";
         if (!vm.last_error().trace.empty())

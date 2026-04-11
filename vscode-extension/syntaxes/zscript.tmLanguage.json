@@ -12,6 +12,7 @@
     { "include": "#class-decl" },
     { "include": "#trait-impl-decl" },
     { "include": "#fn-decl" },
+    { "include": "#class-constructor" },
     { "include": "#fn-call" },
     { "include": "#operators" },
     { "include": "#identifiers" }
@@ -154,9 +155,16 @@
         "2": { "name": "entity.name.function.zscript" }
       }
     },
+    "class-constructor": {
+      "comment": "PascalCase identifier followed by ( — treated as constructor call",
+      "match": "\\b([A-Z][A-Za-z0-9_]*)(?=\\s*\\()",
+      "captures": {
+        "1": { "name": "entity.name.type.class.zscript" }
+      }
+    },
     "fn-call": {
-      "comment": "Function call sites — any identifier immediately followed by (",
-      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+      "comment": "Function call sites — lowercase/underscore identifier immediately followed by (",
+      "match": "\\b([a-z_][A-Za-z0-9_]*)(?=\\s*\\()",
       "captures": {
         "1": { "name": "entity.name.function.zscript" }
       }

@@ -427,6 +427,9 @@ DeclPtr Parser::parse_prop_decl(std::vector<Annotation> annots) {
 // ===========================================================================
 // Import declaration
 //   import some.module
+//   import some.module as alias
+//   import "relative/path.zs"
+//   import "relative/path.zs" as alias
 // ===========================================================================
 DeclPtr Parser::parse_import_decl(std::vector<Annotation> annots) {
     auto node     = std::make_unique<ImportDecl>();
@@ -435,14 +438,42 @@ DeclPtr Parser::parse_import_decl(std::vector<Annotation> annots) {
 
     expect(TokenKind::KwImport, "expected 'import'");
 
-    // Collect dotted path as a single string
-    std::string path = expect(TokenKind::Ident, "expected module name").lexeme;
-    while (check(TokenKind::Dot) && peek(1).kind == TokenKind::Ident) {
-        advance(); // dot
-        path += '.';
-        path += advance().lexeme;
+    std::string path;
+
+    // String path: import "foo/bar.zs"
+    if (check(TokenKind::LitString)) {
+        path = advance().lexeme;   // already stripped of quotes by lexer
+    } else {
+        // Dotted identifier path: import some.module
+        path = expect(TokenKind::Ident, "expected module name").lexeme;
+        while (check(TokenKind::Dot) && peek(1).kind == TokenKind::Ident) {
+            advance();
+            path += '.';
+            path += advance().lexeme;
+        }
     }
     node->path = path;
+
+    // Optional: as alias
+    if (check(TokenKind::Ident) && tokens_[pos_].lexeme == "as") {
+        advance(); // consume "as"
+        node->alias = expect(TokenKind::Ident, "expected alias name").lexeme;
+    }
+
+    // Default alias: last dotted segment (or last path component without extension)
+    if (node->alias.empty()) {
+        auto last_dot = path.rfind('.');
+        auto last_sep = path.rfind('/');
+        size_t start = (last_sep != std::string::npos) ? last_sep + 1 : 0;
+        std::string seg = (last_dot != std::string::npos && last_dot > start)
+                          ? path.substr(start, last_dot - start)
+                          : path.substr(start);
+        // Strip .zs extension if present
+        if (seg.size() > 3 && seg.substr(seg.size() - 3) == ".zs")
+            seg = seg.substr(0, seg.size() - 3);
+        node->alias = seg.empty() ? path : seg;
+    }
+
     return node;
 }
 

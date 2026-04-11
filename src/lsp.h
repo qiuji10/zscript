@@ -50,6 +50,9 @@ struct SymIndex {
     std::unordered_map<std::string, std::vector<SymInfo>> members;
     // function name → local symbols (params + body locals)
     std::unordered_map<std::string, std::vector<SymInfo>> fn_locals;
+    // variable/param name → inferred class type (for dot-completion)
+    // Keyed by "varname" for globals, "FnName::varname" for function locals.
+    std::unordered_map<std::string, std::string> var_types;
 };
 
 // ---------------------------------------------------------------------------
@@ -90,8 +93,10 @@ private:
     // Build index from an already-parsed Program
     SymIndex build_index_from_prog(const Program& prog);
 
-    // Collect local symbols (params + var/let decls) from a function body
-    void collect_fn_locals(const FnDecl& fn, std::vector<SymInfo>& out);
+    // Collect local symbols (params + var/let decls) from a function body.
+    // fn_key is used to scope var_types entries: "FnName" or "ClassName.methodName".
+    void collect_fn_locals(const FnDecl& fn, std::vector<SymInfo>& out,
+                           const std::string& fn_key, SymIndex& idx);
 
     // Semantic pass: emit diagnostics for references to undeclared identifiers
     void check_undefined_symbols(
@@ -121,6 +126,9 @@ private:
     static std::string make_signature(const std::string& name,
                                       const std::vector<Param>& params,
                                       const TypeExpr* ret);
+    // Infer a type name from an initializer expression (returns "" if unknown)
+    // e.g.  Stack()  → "Stack",   math.Vec2()  → "Vec2",  42 → ""
+    static std::string infer_type(const Expr* init);
 
     // ── state ─────────────────────────────────────────────────────────────
     bool shutdown_requested_ = false;

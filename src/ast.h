@@ -259,7 +259,8 @@ struct ImplDecl : Decl {
 };
 
 struct ImportDecl : Decl {
-    std::string path;
+    std::string path;    // dotted module name or quoted string path
+    std::string alias;   // optional "as name"; defaults to last segment of path
 };
 
 // Wraps a statement that appears at top level (script-style)
