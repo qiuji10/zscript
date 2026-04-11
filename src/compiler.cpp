@@ -996,6 +996,23 @@ uint8_t Compiler::compile_binary(const BinaryExpr& e, std::optional<uint8_t> des
         patch_jump(jmp);
         return reg;
     }
+    if (e.op == TokenKind::QuestionQuestion) {
+        // a ?? b: if a is not nil, use a; otherwise use b
+        uint8_t reg     = dest ? *dest : alloc_reg();
+        compile_expr(*e.left, reg);
+        // Check: reg == nil?
+        uint8_t nil_reg = alloc_reg();
+        uint8_t cmp_reg = alloc_reg();
+        emit_ABx(Op::LoadNil, nil_reg, 0, e.loc.line);
+        emit_ABC(Op::Eq, cmp_reg, reg, nil_reg, e.loc.line);
+        free_reg(nil_reg);
+        // JumpFalse: if cmp is false (left != nil) skip the right side
+        size_t skip = emit_jump(Op::JumpFalse, cmp_reg, e.loc.line);
+        free_reg(cmp_reg);
+        compile_expr(*e.right, reg);
+        patch_jump(skip);
+        return reg;
+    }
 
     // Range operators: treated as table construction in Phase 2 (VM just needs the pair)
     // For now emit the left operand — full iteration is handled in compile_for.

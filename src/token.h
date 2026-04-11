@@ -69,6 +69,9 @@ enum class TokenKind : uint16_t {
     Percent,      // %
     StarStar,     // **  (power)
 
+    // --- Operators: nil-coalescing ---
+    QuestionQuestion, // ??
+
     // --- Operators: comparison ---
     Eq,           // ==
     NotEq,        // !=

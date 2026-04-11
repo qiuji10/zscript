@@ -885,7 +885,7 @@ ExprPtr Parser::parse_expr() {
 
 // Assignment / delegate:  target = expr  |  target += expr  |  target -= expr
 ExprPtr Parser::parse_assign() {
-    ExprPtr left = parse_or();
+    ExprPtr left = parse_nil_coalesce();
 
     if (check(TokenKind::Assign)       || check(TokenKind::PlusAssign)  ||
         check(TokenKind::MinusAssign)  || check(TokenKind::StarAssign)  ||
@@ -899,6 +899,22 @@ ExprPtr Parser::parse_assign() {
         node->op     = op;
         node->target = std::move(left);
         node->value  = std::move(right);
+        return node;
+    }
+    return left;
+}
+
+// a ?? b  — right-associative, lower than ||
+ExprPtr Parser::parse_nil_coalesce() {
+    ExprPtr left = parse_or();
+    if (check(TokenKind::QuestionQuestion)) {
+        SourceLoc loc = cur_loc();
+        advance();
+        auto node  = std::make_unique<BinaryExpr>();
+        node->loc  = loc;
+        node->op   = TokenKind::QuestionQuestion;
+        node->left = std::move(left);
+        node->right = parse_nil_coalesce(); // right-associative
         return node;
     }
     return left;

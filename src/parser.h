@@ -71,6 +71,7 @@ private:
     // ---- expressions ----
     ExprPtr parse_expr();
     ExprPtr parse_assign();
+    ExprPtr parse_nil_coalesce();
     ExprPtr parse_or();
     ExprPtr parse_and();
     ExprPtr parse_equality();

@@ -262,8 +262,44 @@ void VM::open_stdlib() {
         auto* t = tbl.as_table();
         int64_t idx = 0;
         for (int64_t i = start; (step > 0 ? i < stop : i > stop); i += step)
-            t->set(std::to_string(idx++), Value::from_int(i));
+            t->set_index(idx++, Value::from_int(i));
         return {tbl};
+    });
+
+    // ── type casts ─────────────────────────────────────────────────────────
+    register_function("int", [](std::vector<Value> args) -> std::vector<Value> {
+        if (args.empty()) return {Value::from_int(0)};
+        auto& a = args[0];
+        if (a.is_int())   return {a};
+        if (a.is_float()) return {Value::from_int((int64_t)a.as_float())};
+        if (a.is_string()) {
+            try {
+                size_t pos;
+                int64_t iv = std::stoll(a.as_string(), &pos);
+                if (pos == a.as_string().size()) return {Value::from_int(iv)};
+                double  dv = std::stod(a.as_string(), &pos);
+                if (pos == a.as_string().size()) return {Value::from_int((int64_t)dv)};
+            } catch (...) {}
+        }
+        return {Value::nil()};
+    });
+    register_function("float", [](std::vector<Value> args) -> std::vector<Value> {
+        if (args.empty()) return {Value::from_float(0.0)};
+        auto& a = args[0];
+        if (a.is_float()) return {a};
+        if (a.is_int())   return {Value::from_float((double)a.as_int())};
+        if (a.is_string()) {
+            try {
+                size_t pos;
+                double dv = std::stod(a.as_string(), &pos);
+                if (pos == a.as_string().size()) return {Value::from_float(dv)};
+            } catch (...) {}
+        }
+        return {Value::nil()};
+    });
+    register_function("str", [](std::vector<Value> args) -> std::vector<Value> {
+        if (args.empty()) return {Value::from_string("nil")};
+        return {Value::from_string(args[0].to_string())};
     });
 
     // ── math table ─────────────────────────────────────────────────────────
@@ -366,6 +402,14 @@ void VM::open_stdlib() {
     mfn("is_inf", [&num_arg](std::vector<Value> a) -> std::vector<Value> {
         return {Value::from_bool(std::isinf(num_arg(a,0)))};
     });
+    mfn("div", [](std::vector<Value> a) -> std::vector<Value> {
+        // Integer division: math.div(10, 3) == 3
+        if (a.size() < 2) return {Value::from_int(0)};
+        int64_t num = a[0].is_int() ? a[0].as_int() : (int64_t)a[0].to_float();
+        int64_t den = a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float();
+        if (den == 0) throw RuntimeError{"math.div: division by zero", ""};
+        return {Value::from_int(num / den)};
+    });
 
     globals_["math"] = math_tbl;
 
@@ -457,31 +501,26 @@ void VM::open_stdlib() {
         auto* t = tbl.as_table();
         int64_t idx = 0;
         if (delim.empty()) {
-            for (char c : s) t->set(std::to_string(idx++), Value::from_string(std::string(1,c)));
+            for (char c : s) t->set_index(idx++, Value::from_string(std::string(1,c)));
         } else {
             size_t pos = 0, found;
             while ((found = s.find(delim, pos)) != std::string::npos) {
-                t->set(std::to_string(idx++), Value::from_string(s.substr(pos, found - pos)));
+                t->set_index(idx++, Value::from_string(s.substr(pos, found - pos)));
                 pos = found + delim.size();
             }
-            t->set(std::to_string(idx), Value::from_string(s.substr(pos)));
+            t->set_index(idx, Value::from_string(s.substr(pos)));
         }
         return {tbl};
     });
     sfn("join", [](std::vector<Value> a) -> std::vector<Value> {
-        // join(table, sep)
+        // join(array, sep)
         if (a.empty() || !a[0].is_table()) return {Value::from_string("")};
         std::string sep = a.size() > 1 ? a[1].to_string() : "";
         auto* t = a[0].as_table();
         std::string out;
-        bool first = true;
-        int64_t idx = 0;
-        while (true) {
-            Value v = t->get(std::to_string(idx++));
-            if (v.is_nil()) break;
-            if (!first) out += sep;
-            out += v.to_string();
-            first = false;
+        for (size_t i = 0; i < t->array.size(); ++i) {
+            if (i) out += sep;
+            out += t->array[i].to_string();
         }
         return {Value::from_string(out)};
     });
@@ -565,6 +604,9 @@ void VM::open_stdlib() {
     globals_["string"] = str_tbl;
     // Populate string_methods_ so that "hello".upper() works
     for (auto& [k, v] : st->hash) string_methods_[k] = v;
+    // Also expose split/join as globals for convenience
+    globals_["split"] = st->hash["split"];
+    globals_["join"]  = st->hash["join"];
 
     // ── table table ────────────────────────────────────────────────────────
     Value tbl_mod = Value::from_table();

@@ -374,6 +374,7 @@ Token Lexer::scan_next() {
 
         // --- question / safe-call ---
         case '?':
+            if (match('?')) return make(TokenKind::QuestionQuestion, "??");
             if (match('.')) return make(TokenKind::QDot, "?.");
             return make(TokenKind::Question, "?");
 
