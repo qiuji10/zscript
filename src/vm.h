@@ -104,6 +104,17 @@ private:
 
     std::unordered_map<std::string, Value> globals_;
     EngineMode    engine_ = EngineMode::None;
+
+    // Type method tables — looked up when GetField is called on a non-table value.
+    // Each entry is a native function that expects self as first arg.
+    std::unordered_map<std::string, Value> string_methods_;
+    std::unordered_map<std::string, Value> table_methods_;
+    std::unordered_map<std::string, Value> int_methods_;
+    std::unordered_map<std::string, Value> float_methods_;
+
+    // Build a self-bound wrapper: a native that prepends `self_val` to args
+    // before calling the original native function.
+    Value make_bound_method(const Value& method, Value self_val);
     GC            gc_;
     ModuleLoader  loader_;
     RuntimeError  last_error_;

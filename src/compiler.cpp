@@ -883,52 +883,115 @@ uint8_t Compiler::compile_unary(const UnaryExpr& e, std::optional<uint8_t> dest)
     return reg;
 }
 
+// Map a compound assignment op to its arithmetic opcode.
+static Op compound_op(TokenKind k) {
+    switch (k) {
+        case TokenKind::PlusAssign:  return Op::Add;
+        case TokenKind::MinusAssign: return Op::Sub;
+        default:                     return Op::Nop; // plain =
+    }
+}
+
 uint8_t Compiler::compile_assign(const AssignExpr& e, std::optional<uint8_t> dest) {
-    uint8_t val_reg = compile_expr(*e.value);
+    bool is_compound = (e.op == TokenKind::PlusAssign || e.op == TokenKind::MinusAssign);
 
     // Simple identifier assignment
     if (auto* id = dynamic_cast<const IdentExpr*>(e.target.get())) {
+        uint8_t val_reg = compile_expr(*e.value);
+
         int local = resolve_local(id->name);
         if (local >= 0) {
-            if (local_is_let(id->name)) {
+            if (local_is_let(id->name))
                 error(id->loc, "cannot reassign immutable binding '" + id->name + "'");
-            }
-            if ((uint8_t)local != val_reg)
+            if (is_compound) {
+                uint8_t tmp = alloc_reg();
+                emit_ABC(compound_op(e.op), tmp, (uint8_t)local, val_reg, e.loc.line);
+                emit_ABC(Op::Move, (uint8_t)local, tmp, 0, e.loc.line);
+                free_reg(tmp);
+            } else if ((uint8_t)local != val_reg) {
                 emit_ABC(Op::Move, (uint8_t)local, val_reg, 0, e.loc.line);
+            }
             return into(val_reg, dest);
         }
-        // Upvalue assignment?
         int upval = resolve_upvalue(cur_fn_, id->name);
         if (upval >= 0) {
-            emit_ABC(Op::SetUpval, val_reg, (uint8_t)upval, 0, e.loc.line);
+            if (is_compound) {
+                uint8_t cur = alloc_reg();
+                emit_ABC(Op::GetUpval, cur, (uint8_t)upval, 0, e.loc.line);
+                uint8_t tmp = alloc_reg();
+                emit_ABC(compound_op(e.op), tmp, cur, val_reg, e.loc.line);
+                emit_ABC(Op::SetUpval, tmp, (uint8_t)upval, 0, e.loc.line);
+                free_reg(tmp);
+                free_reg(cur);
+            } else {
+                emit_ABC(Op::SetUpval, val_reg, (uint8_t)upval, 0, e.loc.line);
+            }
             return into(val_reg, dest);
         }
-        // Global assignment
+        // Global
         uint16_t k = str_const(id->name);
-        emit_ABx(Op::SetGlobal, val_reg, k, e.loc.line);
+        if (is_compound) {
+            uint8_t cur = alloc_reg();
+            emit_ABx(Op::GetGlobal, cur, k, e.loc.line);
+            uint8_t tmp = alloc_reg();
+            emit_ABC(compound_op(e.op), tmp, cur, val_reg, e.loc.line);
+            emit_ABx(Op::SetGlobal, tmp, k, e.loc.line);
+            free_reg(tmp);
+            free_reg(cur);
+        } else {
+            emit_ABx(Op::SetGlobal, val_reg, k, e.loc.line);
+        }
         return into(val_reg, dest);
     }
 
-    // Field assignment:  obj.field = val
+    // Field assignment:  obj.field [op]= val
     if (auto* field = dynamic_cast<const FieldExpr*>(e.target.get())) {
         uint8_t obj_reg = compile_expr(*field->object);
         uint16_t name_k = str_const(field->field);
-        // SetField: A=obj, B=val, Bx=name_k
-        emit_ABx(Op::SetField, obj_reg, (uint16_t)((name_k << 8) | val_reg), e.loc.line);
+        uint8_t val_reg = compile_expr(*e.value);
+        if (is_compound) {
+            // Load current: cur_reg = obj.field
+            uint8_t cur_reg = alloc_reg();
+            emit_ABx(Op::GetField, cur_reg,
+                     (uint16_t)((uint16_t)obj_reg << 8 | (name_k & 0xFF)), e.loc.line);
+            // Apply op: val_reg = cur_reg OP val_reg
+            uint8_t res_reg = alloc_reg();
+            emit_ABC(compound_op(e.op), res_reg, cur_reg, val_reg, e.loc.line);
+            free_reg(cur_reg);
+            // Store back
+            emit_ABx(Op::SetField, obj_reg, (uint16_t)((name_k << 8) | res_reg), e.loc.line);
+            free_reg(res_reg);
+        } else {
+            emit_ABx(Op::SetField, obj_reg, (uint16_t)((name_k << 8) | val_reg), e.loc.line);
+        }
+        free_reg(val_reg);
         free_reg(obj_reg);
         return into(val_reg, dest);
     }
 
-    // Index assignment:  obj[idx] = val
+    // Index assignment:  obj[idx] [op]= val
     if (auto* idx_expr = dynamic_cast<const IndexExpr*>(e.target.get())) {
         uint8_t obj_reg = compile_expr(*idx_expr->object);
         uint8_t idx_reg = compile_expr(*idx_expr->index);
-        emit_ABC(Op::SetIndex, obj_reg, idx_reg, val_reg, e.loc.line);
+        uint8_t val_reg = compile_expr(*e.value);
+        if (is_compound) {
+            uint8_t cur_reg = alloc_reg();
+            emit_ABC(Op::GetIndex, cur_reg, obj_reg, idx_reg, e.loc.line);
+            uint8_t res_reg = alloc_reg();
+            emit_ABC(compound_op(e.op), res_reg, cur_reg, val_reg, e.loc.line);
+            free_reg(cur_reg);
+            emit_ABC(Op::SetIndex, obj_reg, idx_reg, res_reg, e.loc.line);
+            free_reg(res_reg);
+        } else {
+            emit_ABC(Op::SetIndex, obj_reg, idx_reg, val_reg, e.loc.line);
+        }
+        free_reg(val_reg);
         free_reg(idx_reg);
         free_reg(obj_reg);
         return into(val_reg, dest);
     }
 
+    uint8_t val_reg = compile_expr(*e.value);
     error(e.loc, "invalid assignment target");
     return into(val_reg, dest);
 }

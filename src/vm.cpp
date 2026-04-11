@@ -563,6 +563,8 @@ void VM::open_stdlib() {
     });
 
     globals_["string"] = str_tbl;
+    // Populate string_methods_ so that "hello".upper() works
+    for (auto& [k, v] : st->hash) string_methods_[k] = v;
 
     // ── table table ────────────────────────────────────────────────────────
     Value tbl_mod = Value::from_table();
@@ -667,6 +669,8 @@ void VM::open_stdlib() {
     });
 
     globals_["table"] = tbl_mod;
+    // Populate table_methods_ so that arr.push(x) works
+    for (auto& [k, v] : tm->hash) table_methods_[k] = v;
 
     // ── io table ───────────────────────────────────────────────────────────
     Value io_tbl = Value::from_table();
@@ -714,6 +718,20 @@ void VM::open_stdlib() {
     });
 
     globals_["io"] = io_tbl;
+}
+
+// ===========================================================================
+// Type method helpers
+// ===========================================================================
+Value VM::make_bound_method(const Value& method, Value self_val) {
+    // Return a native that prepends self_val to the arg list then calls method.
+    auto nat = method.as_native();
+    auto fn   = nat->fn;
+    std::string name = nat->name;
+    return Value::from_native(name, [fn, self_val](std::vector<Value> args) mutable {
+        args.insert(args.begin(), self_val);
+        return fn(std::move(args));
+    });
 }
 
 // ===========================================================================
@@ -1065,14 +1083,29 @@ bool VM::run() {
                     // Encoding: A=dest, upper8(Bx)=obj_reg, lower8(Bx)=name_k
                     uint8_t  obj_r  = (uint8_t)(Bx >> 8);
                     uint8_t  name_k = (uint8_t)(Bx & 0xFF);
-                    Value& obj = R(obj_r);
-                    if (obj.is_table()) {
-                        const std::string& field = K(name_k).as_string();
-                        R(A) = obj.as_table()->get(field);
-                    } else if (obj.is_nil()) {
+                    const std::string& field = K(name_k).as_string();
+                    Value obj_snap = R(obj_r); // snapshot before any regs_ mutation
+                    if (obj_snap.is_table()) {
+                        Value found = obj_snap.as_table()->get(field);
+                        if (!found.is_nil()) {
+                            R(A) = std::move(found);
+                        } else {
+                            // Fall back to table type methods (e.g. arr.push)
+                            auto it = table_methods_.find(field);
+                            if (it != table_methods_.end())
+                                R(A) = make_bound_method(it->second, obj_snap);
+                            else
+                                R(A) = Value::nil();
+                        }
+                    } else if (obj_snap.tag == Value::Tag::String) {
+                        auto it = string_methods_.find(field);
+                        if (it != string_methods_.end())
+                            R(A) = make_bound_method(it->second, obj_snap);
+                        else
+                            R(A) = Value::nil();
+                    } else if (obj_snap.is_nil()) {
                         runtime_error("attempt to index nil value");
                     } else {
-                        // For non-table values, check the global type table (Phase 3)
                         R(A) = Value::nil();
                     }
                     break;
