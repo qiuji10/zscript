@@ -112,6 +112,48 @@ bool VM::execute_module(Module& mod, std::string& error_msg) {
 }
 
 // ===========================================================================
+// invoke_from_native — re-entrant closure call usable from native callbacks
+// ===========================================================================
+std::vector<Value> VM::invoke_from_native(Value callee, std::vector<Value> args) {
+    if (callee.is_native()) {
+        return callee.as_native()->fn(std::move(args));
+    }
+    if (!callee.is_closure()) return {Value::nil()};
+
+    // Find the register high-water mark across all active frames.
+    uint16_t top = 0;
+    for (auto& f : frames_) {
+        uint16_t frame_top = (uint16_t)(f.base_reg + f.proto->max_regs);
+        if (frame_top > top) top = frame_top;
+    }
+    top += 4; // safety gap
+    if (top + (uint16_t)args.size() + 4 >= MAX_REGS) {
+        throw RuntimeError{"invoke_from_native: register overflow", ""};
+    }
+
+    Proto* proto = callee.as_closure()->proto;
+    regs_[top] = callee;
+    for (size_t i = 0; i < args.size(); ++i)
+        regs_[top + 1 + i] = args[i];
+    for (size_t i = args.size(); i < proto->num_params; ++i)
+        regs_[top + 1 + i] = Value::nil();
+
+    size_t saved_depth = frames_.size();
+    CallFrame frame;
+    frame.proto       = proto;
+    frame.pc          = 0;
+    frame.base_reg    = (uint8_t)(top + 1);
+    frame.num_results = 1;
+    frame.closure     = callee.as_closure();
+    frames_.push_back(frame);
+
+    if (!run(saved_depth)) {
+        throw RuntimeError{last_error_.message, last_error_.trace};
+    }
+    return {regs_[top]};
+}
+
+// ===========================================================================
 // Standard library
 // ===========================================================================
 bool VM::load_file(const std::string& path) {
@@ -682,11 +724,16 @@ void VM::open_stdlib() {
             out.as_table()->array.push_back(v);
         return {out};
     });
-    // contains(tbl, key) → bool
-    tfn("contains", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
+    // contains(tbl, val) → bool — checks array values AND hash keys
+    tfn("contains", [](std::vector<Value> a) -> std::vector<Value> {
         if (a.size() < 2 || !a[0].is_table()) return {Value::from_bool(false)};
-        std::string key = str_arg(a, 1);
-        return {Value::from_bool(!a[0].as_table()->get(key).is_nil())};
+        auto* t = a[0].as_table();
+        const Value& needle = a[1];
+        for (auto& v : t->array)
+            if (v == needle) return {Value::from_bool(true)};
+        if (needle.is_string())
+            return {Value::from_bool(!t->get(needle.as_string()).is_nil())};
+        return {Value::from_bool(false)};
     });
     // sort(tbl) — sorts array part in-place
     tfn("sort", [](std::vector<Value> a) -> std::vector<Value> {
@@ -708,6 +755,133 @@ void VM::open_stdlib() {
         for (auto& [k, v] : src->hash) dst->hash[k] = v;
         dst->array = src->array;
         return {out};
+    });
+    // slice(tbl, start, end?) — return sub-array [start..end)
+    tfn("slice", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::from_table()};
+        auto& arr = a[0].as_table()->array;
+        int64_t len   = (int64_t)arr.size();
+        int64_t start = a.size() > 1 ? (a[1].is_int() ? a[1].as_int() : (int64_t)a[1].to_float()) : 0;
+        int64_t end   = a.size() > 2 ? (a[2].is_int() ? a[2].as_int() : (int64_t)a[2].to_float()) : len;
+        if (start < 0) start = std::max<int64_t>(0, len + start);
+        if (end   < 0) end   = std::max<int64_t>(0, len + end);
+        start = std::min(start, len);
+        end   = std::min(end,   len);
+        Value out = Value::from_table();
+        for (int64_t i = start; i < end; ++i)
+            out.as_table()->array.push_back(arr[(size_t)i]);
+        return {out};
+    });
+    // index_of(tbl, val) → int (-1 if not found)
+    tfn("index_of", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 2 || !a[0].is_table()) return {Value::from_int(-1)};
+        auto& arr = a[0].as_table()->array;
+        const Value& needle = a[1];
+        for (size_t i = 0; i < arr.size(); ++i)
+            if (arr[i] == needle) return {Value::from_int((int64_t)i)};
+        return {Value::from_int(-1)};
+    });
+    // reverse(tbl) — reverse array part in-place, return self
+    tfn("reverse", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::nil()};
+        std::reverse(a[0].as_table()->array.begin(), a[0].as_table()->array.end());
+        return {a[0]};
+    });
+    // concat(tbl, tbl2) — new array with elements of both
+    tfn("concat", [](std::vector<Value> a) -> std::vector<Value> {
+        Value out = Value::from_table();
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (!a[i].is_table()) continue;
+            for (auto& v : a[i].as_table()->array)
+                out.as_table()->array.push_back(v);
+        }
+        return {out};
+    });
+    // map(tbl, fn) — return new array with fn applied to each element
+    tfn("map", [this](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 2 || !a[0].is_table()) return {Value::from_table()};
+        auto& arr = a[0].as_table()->array;
+        Value out = Value::from_table();
+        for (auto& elem : arr) {
+            auto res = invoke_from_native(a[1], {elem});
+            out.as_table()->array.push_back(res.empty() ? Value::nil() : res[0]);
+        }
+        return {out};
+    });
+    // filter(tbl, fn) — return new array with elements where fn(elem) is truthy
+    tfn("filter", [this](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 2 || !a[0].is_table()) return {Value::from_table()};
+        auto& arr = a[0].as_table()->array;
+        Value out = Value::from_table();
+        for (auto& elem : arr) {
+            auto res = invoke_from_native(a[1], {elem});
+            if (!res.empty() && res[0].truthy())
+                out.as_table()->array.push_back(elem);
+        }
+        return {out};
+    });
+    // reduce(tbl, fn, init) — fold left: acc = fn(acc, elem) for each elem
+    tfn("reduce", [this](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 2 || !a[0].is_table()) return {Value::nil()};
+        auto& arr = a[0].as_table()->array;
+        Value acc = a.size() > 2 ? a[2] : Value::nil();
+        for (auto& elem : arr) {
+            auto res = invoke_from_native(a[1], {acc, elem});
+            acc = res.empty() ? Value::nil() : res[0];
+        }
+        return {acc};
+    });
+    // each(tbl, fn) — call fn(elem) for each element (returns nil)
+    tfn("each", [this](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 2 || !a[0].is_table()) return {};
+        auto& arr = a[0].as_table()->array;
+        for (auto& elem : arr)
+            invoke_from_native(a[1], {elem});
+        return {};
+    });
+    // any(tbl, fn) → bool — true if fn(elem) is truthy for at least one element
+    tfn("any", [this](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 2 || !a[0].is_table()) return {Value::from_bool(false)};
+        for (auto& elem : a[0].as_table()->array) {
+            auto res = invoke_from_native(a[1], {elem});
+            if (!res.empty() && res[0].truthy()) return {Value::from_bool(true)};
+        }
+        return {Value::from_bool(false)};
+    });
+    // all(tbl, fn) → bool — true if fn(elem) is truthy for every element
+    tfn("all", [this](std::vector<Value> a) -> std::vector<Value> {
+        if (a.size() < 2 || !a[0].is_table()) return {Value::from_bool(true)};
+        for (auto& elem : a[0].as_table()->array) {
+            auto res = invoke_from_native(a[1], {elem});
+            if (res.empty() || !res[0].truthy()) return {Value::from_bool(false)};
+        }
+        return {Value::from_bool(true)};
+    });
+    // flat(tbl) — flatten one level (array of arrays → flat array)
+    tfn("flat", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::from_table()};
+        Value out = Value::from_table();
+        for (auto& elem : a[0].as_table()->array) {
+            if (elem.is_table()) {
+                for (auto& inner : elem.as_table()->array)
+                    out.as_table()->array.push_back(inner);
+            } else {
+                out.as_table()->array.push_back(elem);
+            }
+        }
+        return {out};
+    });
+    // first(tbl) → value or nil
+    tfn("first", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table() || a[0].as_table()->array.empty())
+            return {Value::nil()};
+        return {a[0].as_table()->array.front()};
+    });
+    // last(tbl) → value or nil
+    tfn("last", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table() || a[0].as_table()->array.empty())
+            return {Value::nil()};
+        return {a[0].as_table()->array.back()};
     });
 
     globals_["table"] = tbl_mod;
@@ -1072,8 +1246,8 @@ void VM::close_upvals_above(uint8_t base) {
 // ===========================================================================
 // Main interpreter loop
 // ===========================================================================
-bool VM::run() {
-    while (!frames_.empty()) {
+bool VM::run(size_t stop_depth) {
+    while (frames_.size() > stop_depth) {
         // Snapshot frame state — re-snapshot whenever the frame stack changes.
         Proto*   proto    = frames_.back().proto;
         uint8_t  base_reg = frames_.back().base_reg;

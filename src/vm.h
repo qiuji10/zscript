@@ -81,9 +81,11 @@ public:
     const RuntimeError& last_error() const { return last_error_; }
 
 private:
-    bool run();
+    bool run(size_t stop_depth = 0);
     bool call(uint8_t base_reg, uint8_t num_args, uint8_t num_results);
     bool call_method(uint8_t base_reg, uint8_t user_args, uint8_t num_results);
+    // Re-entrant closure call from within a native function.
+    std::vector<Value> invoke_from_native(Value fn, std::vector<Value> args);
 
     static constexpr size_t MAX_REGS   = 1024;
     static constexpr size_t MAX_FRAMES = 200;
