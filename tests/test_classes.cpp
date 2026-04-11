@@ -452,3 +452,135 @@ TEST_CASE("multiple default params", "[classes][defaults]") {
     CHECK(c.g("c2").as_int() == 33);
     CHECK(c.g("d").as_int() == 60);
 }
+
+// ---------------------------------------------------------------------------
+// Traits
+// ---------------------------------------------------------------------------
+
+TEST_CASE("abstract trait: is operator returns true after impl", "[classes][traits]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        trait Walkable { fn walk() }
+        class Dog {
+            fn init(name) { self.name = name }
+        }
+        impl Walkable for Dog {
+            fn walk() { return self.name + " walks" }
+        }
+        let d = Dog("Rex")
+        var result = d is Walkable
+    )"));
+    CHECK(c.g("result").as_bool() == true);
+}
+
+TEST_CASE("is operator returns false for unimplemented trait", "[classes][traits]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        trait Flyable { fn fly() }
+        class Dog {
+            fn init(name) { self.name = name }
+        }
+        let d = Dog("Rex")
+        var result = d is Flyable
+    )"));
+    CHECK(c.g("result").as_bool() == false);
+}
+
+TEST_CASE("impl injects method onto class", "[classes][traits]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        trait Greetable { fn greet() }
+        class Person {
+            fn init(name) { self.name = name }
+        }
+        impl Greetable for Person {
+            fn greet() { return "Hello, " + self.name }
+        }
+        let p = Person("Alice")
+        var msg = p.greet()
+    )"));
+    CHECK(c.g("msg").as_string() == "Hello, Alice");
+}
+
+TEST_CASE("trait with default method is used when impl does not override", "[classes][traits]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        trait Describable {
+            fn describe() { return "I am an object" }
+        }
+        class Box {
+            fn init(w) { self.w = w }
+        }
+        impl Describable for Box {}
+        let b = Box(5)
+        var desc = b.describe()
+        var is_d = b is Describable
+    )"));
+    CHECK(c.g("desc").as_string() == "I am an object");
+    CHECK(c.g("is_d").as_bool()   == true);
+}
+
+TEST_CASE("impl overrides trait default method", "[classes][traits]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        trait Named {
+            fn name() { return "unknown" }
+        }
+        class Cat {
+            fn init(n) { self.n = n }
+        }
+        impl Named for Cat {
+            fn name() { return self.n }
+        }
+        let c2 = Cat("Whiskers")
+        var nm = c2.name()
+    )"));
+    CHECK(c.g("nm").as_string() == "Whiskers");
+}
+
+TEST_CASE("child class inherits trait marker from parent", "[classes][traits]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        trait Runnable { fn run() }
+        class Animal {
+            fn init(name) { self.name = name }
+        }
+        impl Runnable for Animal {
+            fn run() { return self.name + " runs" }
+        }
+        class Horse : Animal {
+            fn init(name) { super.init(name) }
+        }
+        let h = Horse("Spirit")
+        var is_r  = h is Runnable
+        var speed = h.run()
+    )"));
+    CHECK(c.g("is_r").as_bool()   == true);
+    CHECK(c.g("speed").as_string() == "Spirit runs");
+}
+
+TEST_CASE("class can implement multiple traits", "[classes][traits]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        trait Swimmer { fn swim() }
+        trait Diver   { fn dive() }
+        class Duck {
+            fn init(name) { self.name = name }
+        }
+        impl Swimmer for Duck {
+            fn swim() { return self.name + " swims" }
+        }
+        impl Diver for Duck {
+            fn dive() { return self.name + " dives" }
+        }
+        let d = Duck("Donald")
+        var sw = d.swim()
+        var dv = d.dive()
+        var is_sw = d is Swimmer
+        var is_dv = d is Diver
+    )"));
+    CHECK(c.g("sw").as_string()  == "Donald swims");
+    CHECK(c.g("dv").as_string()  == "Donald dives");
+    CHECK(c.g("is_sw").as_bool() == true);
+    CHECK(c.g("is_dv").as_bool() == true);
+}

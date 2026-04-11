@@ -123,6 +123,11 @@ private:
     void compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line);
     void compile_class_decl(const ClassDecl& cls, uint32_t line);
     void compile_enum_decl(const EnumDecl& e, uint32_t line);
+    void compile_trait_decl(const TraitDecl& t, uint32_t line);
+    void compile_impl_decl(const ImplDecl& impl, uint32_t line);
+    // Shared helper: compile one method closure and SetField it onto tbl_reg.
+    void compile_method(const FnDecl& fn, const std::string& class_name,
+                        const std::string& base_class, uint8_t tbl_reg);
     void compile_top_level(const Program& prog);
 
     // =========================================================================

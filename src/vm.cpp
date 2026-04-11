@@ -1319,10 +1319,11 @@ bool VM::run(size_t stop_depth) {
                     break;
 
                 case Op::Inherit: {
-                    // A = child table, B = parent table
+                    // A = child table, B = parent table (nil = no-op)
                     // Copy all entries from parent into child (skip metadata and statics).
                     Value& child  = R(A);
                     Value& parent = R(B);
+                    if (parent.is_nil()) break; // no-op for trait with no defaults
                     if (child.is_table() && parent.is_table()) {
                         auto* ct = child.as_table();
                         auto* pt = parent.as_table();
@@ -1696,8 +1697,9 @@ bool VM::run(size_t stop_depth) {
                 }
 
                 case Op::IsInstance: {
-                    // A=dest, B=object, C=const_idx (class name string)
-                    const std::string& class_name = K(C).as_string();
+                    // A=dest, B=object, C=const_idx (class or trait name string)
+                    const std::string& target = K(C).as_string();
+                    const std::string  trait_key = "__trait_" + target + "__";
                     Value& obj = R(B);
                     bool result = false;
                     if (obj.is_table()) {
@@ -1706,12 +1708,14 @@ bool VM::run(size_t stop_depth) {
                         if (it != tbl->hash.end() && it->second.is_string()) {
                             std::string cur = it->second.as_string();
                             while (true) {
-                                if (cur == class_name) { result = true; break; }
+                                if (cur == target) { result = true; break; }
                                 // Look up the class prototype in globals
                                 auto git = globals_.find(cur);
                                 if (git == globals_.end() || !git->second.is_table()) break;
                                 auto* ct = git->second.as_table();
-                                // __base__ stores the parent class TABLE; get its __class__ name
+                                // Check trait membership marker
+                                if (ct->get(trait_key).truthy()) { result = true; break; }
+                                // Walk base chain
                                 auto bit = ct->hash.find("__base__");
                                 if (bit == ct->hash.end() || !bit->second.is_table()) break;
                                 auto* bt = bit->second.as_table();

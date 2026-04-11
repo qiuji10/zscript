@@ -196,6 +196,10 @@ void Compiler::compile_top_level(const Program& prog) {
             compile_class_decl(*cls, cls->loc.line);
         } else if (auto* en = dynamic_cast<const EnumDecl*>(decl.get())) {
             compile_enum_decl(*en, en->loc.line);
+        } else if (auto* tr = dynamic_cast<const TraitDecl*>(decl.get())) {
+            compile_trait_decl(*tr, tr->loc.line);
+        } else if (auto* im = dynamic_cast<const ImplDecl*>(decl.get())) {
+            compile_impl_decl(*im, im->loc.line);
         } else if (auto* fd = dynamic_cast<const FieldDecl*>(decl.get())) {
             // Top-level var/let → global
             if (fd->init) {
@@ -493,6 +497,135 @@ void Compiler::compile_enum_decl(const EnumDecl& e, uint32_t line) {
 
     uint16_t enum_name_k = str_const(e.name);
     emit_ABx(Op::SetGlobal, tbl_reg, enum_name_k, line);
+    free_reg(tbl_reg);
+}
+
+// ===========================================================================
+// Shared method compilation helper
+// Compiles one FnDecl as an instance method (with self as R[0]) and
+// stores the resulting closure into R[tbl_reg] via SetField.
+// ===========================================================================
+void Compiler::compile_method(const FnDecl& fn, const std::string& class_name,
+                              const std::string& base_class, uint8_t tbl_reg) {
+    Proto* fn_proto = chunk_->new_proto(class_name + "." + fn.name);
+    fn_proto->num_params = (uint8_t)(fn.params.size() + 1); // +1 for self
+
+    FnState child_fs;
+    child_fs.proto     = fn_proto;
+    child_fs.enclosing = cur_fn_;
+    FnState* prev  = cur_fn_;
+    cur_fn_        = &child_fs;
+    current_class_      = class_name;
+    current_base_class_ = base_class;
+
+    push_scope();
+    uint8_t self_reg = alloc_reg();
+    define_local("self", self_reg, false);
+    std::vector<uint8_t> param_regs;
+    for (auto& param : fn.params) {
+        uint8_t r = alloc_reg();
+        define_local(param.name, r, !param.is_mut);
+        param_regs.push_back(r);
+    }
+    // Default-value guards
+    for (size_t i = 0; i < fn.params.size(); ++i) {
+        const auto& param = fn.params[i];
+        if (!param.default_val || param.is_vararg) continue;
+        uint8_t r   = param_regs[i];
+        uint8_t cmp = alloc_reg();
+        emit_ABx(Op::LoadNil, cmp, 0, param.loc.line);
+        emit_ABC(Op::Eq, cmp, r, cmp, param.loc.line);
+        size_t jmp = emit_jump(Op::JumpFalse, cmp, param.loc.line);
+        free_reg(cmp);
+        compile_expr(*param.default_val, r);
+        patch_jump(jmp);
+    }
+    compile_block(fn.body);
+    if (fn_proto->code.empty() || instr_op(fn_proto->code.back()) != Op::Return)
+        emit_ABx(Op::Return, 0, 0);
+    pop_scope();
+
+    fn_proto->max_regs = child_fs.max_reg;
+    cur_fn_             = prev;
+    current_class_      = "";
+    current_base_class_ = "";
+
+    cur_fn_->proto->protos.push_back(fn_proto);
+    uint16_t nested_idx = (uint16_t)(cur_fn_->proto->protos.size() - 1);
+    uint8_t fn_reg = alloc_reg();
+    emit_ABx(Op::Closure, fn_reg, nested_idx, fn.loc.line);
+    uint16_t name_k = str_const(fn.name);
+    emit_ABx(Op::SetField, tbl_reg, (uint16_t)((name_k << 8) | fn_reg), fn.loc.line);
+    free_reg(fn_reg);
+}
+
+// ===========================================================================
+// Trait declaration
+//   trait Walkable { fn walk() { return "walking" } }
+// If the trait has default method bodies, it compiles to a global prototype
+// table so impl can inherit from it. Abstract-only traits are no-ops.
+// ===========================================================================
+void Compiler::compile_trait_decl(const TraitDecl& t, uint32_t line) {
+    // Check if any method has a default body.
+    bool has_defaults = false;
+    for (auto& m : t.members)
+        if (auto* fn = dynamic_cast<const FnDecl*>(m.get()))
+            if (!fn->body.stmts.empty()) { has_defaults = true; break; }
+
+    if (!has_defaults) return; // pure abstract — no runtime table needed
+
+    uint8_t tbl_reg = alloc_reg();
+    emit_ABC(Op::NewTable, tbl_reg, 0, 0, line);
+
+    for (auto& m : t.members) {
+        auto* fn = dynamic_cast<const FnDecl*>(m.get());
+        if (!fn || fn->body.stmts.empty()) continue;
+        compile_method(*fn, t.name, "", tbl_reg);
+    }
+
+    uint16_t name_k = str_const(t.name);
+    emit_ABx(Op::SetGlobal, tbl_reg, name_k, line);
+    free_reg(tbl_reg);
+}
+
+// ===========================================================================
+// Impl declaration
+//   impl Trait for Dog { fn walk() { ... } }
+//   impl Dog { fn extra() { ... } }   (inherent impl — just adds methods)
+// ===========================================================================
+void Compiler::compile_impl_decl(const ImplDecl& impl, uint32_t line) {
+    // Load the target class table (mutated in-place — tables are reference types).
+    uint8_t tbl_reg = alloc_reg();
+    uint16_t class_k = str_const(impl.for_type);
+    emit_ABx(Op::GetGlobal, tbl_reg, class_k, line);
+
+    if (impl.trait_name) {
+        // Inherit trait defaults first (no-op if trait has no global / pure abstract).
+        uint8_t trait_reg = alloc_reg();
+        uint16_t trait_k  = str_const(*impl.trait_name);
+        emit_ABx(Op::GetGlobal, trait_reg, trait_k, line);
+        emit_ABC(Op::Inherit, tbl_reg, trait_reg, 0, line); // no-op if trait_reg is nil
+        free_reg(trait_reg);
+    }
+
+    // Compile impl methods (override any inherited defaults).
+    const std::string& class_name = impl.for_type;
+    for (auto& m : impl.members) {
+        auto* fn = dynamic_cast<const FnDecl*>(m.get());
+        if (!fn) continue;
+        compile_method(*fn, class_name, "", tbl_reg);
+    }
+
+    // Mark trait membership on the class prototype.
+    if (impl.trait_name) {
+        std::string marker_key = "__trait_" + *impl.trait_name + "__";
+        uint8_t bool_reg = alloc_reg();
+        emit_ABx(Op::LoadBool, bool_reg, 1, line);
+        uint16_t mk = str_const(marker_key);
+        emit_ABx(Op::SetField, tbl_reg, (uint16_t)((mk << 8) | bool_reg), line);
+        free_reg(bool_reg);
+    }
+
     free_reg(tbl_reg);
 }
 
