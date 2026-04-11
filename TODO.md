@@ -68,6 +68,30 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] `vm.setEngine(Engine::Unreal | Engine::Unity)` — engine mode at init
 - [ ] `vm.load_file(path)` — load and execute a `.zs` script
 - [x] `vm.call(name, args...)` — call a named script function from C++
+- [x] Re-entrant `invoke_from_native` for HOF calls from native C++ functions
+
+### Language Features
+- [x] `match` statement with pattern arms
+- [x] Power operator (`**`) and compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `**=`)
+- [x] `for k, v in table` KV iteration
+- [x] `try` / `catch` / `throw` error handling
+- [x] Variadic functions (`...args` collected as array)
+- [x] Multiple return values (`return a, b` + `let x, y = fn()`)
+- [x] `is` type-check operator — walks `__class__`/`__base__` chain + trait markers
+- [x] Array destructuring: `let [a, b, ...rest] = arr`
+- [x] Table destructuring: `let {x, y: alias} = obj` (top-level and inside functions)
+- [x] Static methods and fields (`static fn foo()`, `static var count = 0`) — stored on class prototype, skipped during instantiation
+- [x] Default parameter values (`fn f(x = 1, y = 2)`)
+- [x] Traits: `trait T { fn method() }` and `impl T for Class {}` with default method inheritance
+- [x] Array built-in methods: `push`, `pop`, `slice`, `index_of`, `reverse`, `concat`, `first`, `last`, `map`, `filter`, `reduce`, `each`, `any`, `all`, `flat`
+- [x] Table built-in methods: `keys`, `values`, `contains`, `remove`, `len`
+- [ ] Named arguments (`fn f(x:, y:)` / `f(x: 1, y: 2)`)
+- [ ] Optional chaining improvements (`?.` / `!.` on method chains)
+- [ ] Delegate `+=` / `-=` event subscription / unsubscription
+- [ ] String built-in methods: `split`, `trim`, `starts_with`, `ends_with`, `replace`, `to_upper`, `to_lower`
+- [ ] String multiline / raw literals — backtick strings or `r"raw \n no escape"` (no escape processing)
+- [ ] Range type and range iteration (`0..10`, `0..<10`)
+- [ ] Generics / type parameters (syntax parsed; semantic checking not yet implemented)
 
 ---
 
@@ -158,14 +182,15 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [ ] Human-readable error output with line/column
 
 ### LSP Server
-- [ ] LSP server skeleton (stdio transport)
+- [-] LSP server skeleton (stdio transport) — `src/lsp.cpp` / `src/lsp.h` exist as stubs
 - [ ] `textDocument/completion` — autocomplete identifiers, methods, types
 - [ ] `textDocument/definition` — go-to-definition
+- [ ] `textDocument/hover` — type info on hover
 - [ ] `textDocument/publishDiagnostics` — inline errors
 - [ ] VS Code extension scaffold
 
 ### Debugger (DAP)
-- [ ] DAP server skeleton
+- [-] DAP server skeleton — `src/dap.cpp` / `src/dap.h` exist as stubs
 - [ ] Breakpoint set/clear
 - [ ] Step over / step into / step out
 - [ ] Variable inspection (locals, upvalues, globals)
@@ -175,11 +200,18 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 
 ## Ongoing / Cross-cutting
 
-- [ ] Standard library: `math`, `string`, `table`, `io` (sandboxed), `os` (sandboxed)
+- [-] Standard library
+  - [x] `print`, `to_string`, `to_int`, `to_float`, `type_of`, `len` / `#` operator
+  - [x] `math`: `floor`, `ceil`, `sqrt`, `abs`, `min`, `max`, `pow`, `round`
+  - [x] Array methods (see Language Features above)
+  - [x] Table methods (see Language Features above)
+  - [ ] `string`: `split`, `trim`, `starts_with`, `ends_with`, `replace`, `to_upper`, `to_lower`
+  - [ ] `json`: `encode(value) -> string`, `decode(string) -> value`
+  - [ ] `io` / `os`: sandboxed file and process access
 - [ ] Whitelist approach: stdlib only available if host approves
-- [ ] Test suite: one test file per language feature
+- [x] Test suite: one test file per language feature (lexer, parser, vm, operators, control_flow, functions, classes, collections, closures, error_handling, stdlib, gc, hotpatch)
 - [ ] Fuzzer for lexer + parser
 - [ ] CI: build matrix (Windows / Linux / macOS)
-- [ ] Decide: GC algorithm (mark-sweep vs ref-count) — leaning mark-sweep
-- [ ] Decide: hotpatch granularity (file-level first, function-level later)
-- [ ] Decide: bytecode portability (binary + magic header)
+- [x] Decide: GC algorithm — mark-sweep (implemented)
+- [x] Decide: hotpatch granularity — file-level (implemented)
+- [x] Decide: bytecode portability — binary + magic header (implemented)
