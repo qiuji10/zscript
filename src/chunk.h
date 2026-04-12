@@ -113,8 +113,14 @@ enum class Op : uint8_t {
     SliceFrom,    // A B C           R[A] = R[B].array[C..]
 
     // --- Range construction ---
-    NewRange,     // A B C           R[A] = R[B]..R[C]   (inclusive)
-    NewRangeExcl, // A B C           R[A] = R[B]..<R[C]  (exclusive)
+    NewRange,         // A B C           R[A] = R[B]..R[C]   (inclusive)
+    NewRangeExcl,     // A B C           R[A] = R[B]..<R[C]  (exclusive)
+
+    // --- Named-arg calls ---
+    // CallNamed A B C: like Call but R[A+B+1] is a named-args table {name:val,...}
+    CallNamed,        // A B C           R[A](positionals R[A+1..A+B], named R[A+B+1])
+    // CallMethodNamed A B C: like CallMethod but R[A+B+2] is a named-args table
+    CallMethodNamed,  // A B C           R[A](self=R[A+1], pos R[A+2..A+B+1], named R[A+B+2])
 
     // --- Misc ---
     Nop,
@@ -181,6 +187,7 @@ struct Proto {
     std::vector<Value>       constants;  // constant pool (Value defined in value.h)
     std::vector<Proto*>      protos;     // nested function prototypes (owned by Chunk)
     std::vector<UpvalDesc>   upvalues;   // upvalue descriptors (populated by compiler)
+    std::vector<std::string> param_names; // parameter names in order (for named-arg calls)
 
     // Debug info
     std::vector<uint32_t>    lines;      // code[i] was generated from line lines[i]

@@ -233,6 +233,9 @@ void Compiler::compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line
     fn_proto->num_params = (uint8_t)fn.params.size();
     if (!fn.params.empty() && fn.params.back().is_vararg)
         fn_proto->is_vararg = true;
+    // Store param names for runtime named-arg resolution
+    for (auto& p : fn.params)
+        fn_proto->param_names.push_back(p.name);
 
     // New FnState
     FnState child_fs;
@@ -376,6 +379,7 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
             // Static method: no self param — behaves like a regular function
             fn_proto->num_params = (uint8_t)fn->params.size();
             for (auto& param : fn->params) {
+                fn_proto->param_names.push_back(param.name);
                 uint8_t r = alloc_reg();
                 define_local(param.name, r, !param.is_mut);
                 method_param_regs.push_back(r);
@@ -384,9 +388,11 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
         } else {
             // Instance method: self is register 0
             fn_proto->num_params = (uint8_t)(fn->params.size() + 1);
+            fn_proto->param_names.push_back("self");
             uint8_t self_reg = alloc_reg();
             define_local("self", self_reg, /*is_let=*/false);
             for (auto& param : fn->params) {
+                fn_proto->param_names.push_back(param.name);
                 uint8_t r = alloc_reg();
                 define_local(param.name, r, !param.is_mut);
                 method_param_regs.push_back(r);
@@ -509,6 +515,9 @@ void Compiler::compile_method(const FnDecl& fn, const std::string& class_name,
                               const std::string& base_class, uint8_t tbl_reg) {
     Proto* fn_proto = chunk_->new_proto(class_name + "." + fn.name);
     fn_proto->num_params = (uint8_t)(fn.params.size() + 1); // +1 for self
+    // self is param 0; user params follow
+    fn_proto->param_names.push_back("self");
+    for (auto& p : fn.params) fn_proto->param_names.push_back(p.name);
 
     FnState child_fs;
     child_fs.proto     = fn_proto;
@@ -705,7 +714,8 @@ void Compiler::compile_multi_var_decl(const MultiVarDeclStmt& s) {
     auto& code = cur_fn_->proto->code;
     if (!code.empty()) {
         Op last_op = instr_op(code.back());
-        if (last_op == Op::Call || last_op == Op::CallMethod) {
+        if (last_op == Op::Call || last_op == Op::CallMethod ||
+            last_op == Op::CallNamed || last_op == Op::CallMethodNamed) {
             uint32_t instr = code.back();
             code.back() = encode_ABC(last_op, instr_A(instr), instr_B(instr), N);
         }
@@ -1643,7 +1653,22 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
                 compile_expr(*arg, ar);
             }
             uint8_t num_args = (uint8_t)e.args.size();
-            emit_ABC(Op::CallMethod, base, num_args, 1, e.loc.line);
+            if (!e.named_args.empty()) {
+                // Build named-args table and emit CallMethodNamed
+                uint8_t tbl_reg = alloc_reg();
+                emit_ABC(Op::NewTable, tbl_reg, 0, 0, e.loc.line);
+                for (auto& na : e.named_args) {
+                    uint8_t vr = alloc_reg();
+                    compile_expr(*na.value, vr);
+                    uint16_t nk = str_const(na.name);
+                    emit_ABx(Op::SetField, tbl_reg, (uint16_t)((nk << 8) | vr), e.loc.line);
+                    free_reg(vr);
+                }
+                emit_ABC(Op::CallMethodNamed, base, num_args, 1, e.loc.line);
+                free_reg(tbl_reg);
+            } else {
+                emit_ABC(Op::CallMethod, base, num_args, 1, e.loc.line);
+            }
             cur_fn_->next_reg = base + 1;
 
             if (is_safe) {
@@ -1672,7 +1697,22 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
         compile_expr(*arg, arg_reg);
     }
     uint8_t num_args = (uint8_t)e.args.size();
-    emit_ABC(Op::Call, base, num_args, 1, e.loc.line);
+    if (!e.named_args.empty()) {
+        // Build named-args table and emit CallNamed
+        uint8_t tbl_reg = alloc_reg();
+        emit_ABC(Op::NewTable, tbl_reg, 0, 0, e.loc.line);
+        for (auto& na : e.named_args) {
+            uint8_t vr = alloc_reg();
+            compile_expr(*na.value, vr);
+            uint16_t nk = str_const(na.name);
+            emit_ABx(Op::SetField, tbl_reg, (uint16_t)((nk << 8) | vr), e.loc.line);
+            free_reg(vr);
+        }
+        emit_ABC(Op::CallNamed, base, num_args, 1, e.loc.line);
+        free_reg(tbl_reg);
+    } else {
+        emit_ABC(Op::Call, base, num_args, 1, e.loc.line);
+    }
     cur_fn_->next_reg = base + 1;
     if (cur_fn_->max_reg < cur_fn_->next_reg)
         cur_fn_->max_reg = cur_fn_->next_reg;
@@ -1708,6 +1748,7 @@ uint8_t Compiler::compile_lambda(const LambdaExpr& e, std::optional<uint8_t> des
     fn_proto->num_params = (uint8_t)e.params.size();
     if (!e.params.empty() && e.params.back().is_vararg)
         fn_proto->is_vararg = true;
+    for (auto& p : e.params) fn_proto->param_names.push_back(p.name);
 
     FnState child_fs;
     child_fs.proto     = fn_proto;

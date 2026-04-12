@@ -238,3 +238,76 @@ TEST_CASE("table destructuring from class instance", "[functions][destructure]")
     CHECK(c.g("rx").as_int() == 6);
     CHECK(c.g("ry").as_int() == 8);
 }
+
+// ---------------------------------------------------------------------------
+// Named arguments
+// ---------------------------------------------------------------------------
+
+TEST_CASE("named args basic reorder", "[functions][named_args]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn greet(name, greeting) {
+            return greeting + ", " + name + "!"
+        }
+        var r = greet(greeting: "Hello", name: "Alice")
+    )"));
+    CHECK(c.g("r").as_string() == "Hello, Alice!");
+}
+
+TEST_CASE("named args same order as declaration", "[functions][named_args]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn sub(a, b) { return a - b }
+        var r = sub(a: 10, b: 3)
+    )"));
+    CHECK(c.g("r").as_int() == 7);
+}
+
+TEST_CASE("mixed positional then named args", "[functions][named_args]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn make(x, y, z) { return x * 100 + y * 10 + z }
+        var r = make(1, z: 3, y: 2)
+    )"));
+    CHECK(c.g("r").as_int() == 123);
+}
+
+TEST_CASE("named args with default values — skip middle param", "[functions][named_args]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn build(w, h = 10, d = 1) { return w * h * d }
+        var r = build(w: 5, d: 4)
+    )"));
+    CHECK(c.g("r").as_int() == 200);  // 5 * 10 * 4
+}
+
+TEST_CASE("named args all defaults skipped", "[functions][named_args]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn box(x = 1, y = 2, z = 3) { return x + y + z }
+        var r = box(z: 30, x: 10)
+    )"));
+    CHECK(c.g("r").as_int() == 42);  // 10 + 2 + 30
+}
+
+TEST_CASE("named args on method call", "[functions][named_args]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Vec {
+            fn init(x, y) { self.x = x  self.y = y }
+            fn scale(sx, sy) { return self.x * sx + self.y * sy }
+        }
+        let v = Vec(3, 4)
+        var r = v.scale(sy: 2, sx: 1)
+    )"));
+    CHECK(c.g("r").as_int() == 11);  // 3*1 + 4*2
+}
+
+TEST_CASE("named args passed to closure variable", "[functions][named_args]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let f = fn(a, b) { return a - b }
+        var r = f(b: 3, a: 10)
+    )"));
+    CHECK(c.g("r").as_int() == 7);
+}

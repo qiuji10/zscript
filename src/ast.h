@@ -133,10 +133,15 @@ struct FieldExpr : Expr {
 };
 
 // Function / method call, optionally with generic type args
+struct NamedArg {
+    std::string name;
+    ExprPtr     value;
+};
 struct CallExpr : Expr {
     ExprPtr              callee;
     std::vector<TypePtr> type_args;
-    std::vector<ExprPtr> args;
+    std::vector<ExprPtr> args;        // positional args
+    std::vector<NamedArg> named_args; // named args (after positionals)
 };
 
 // Subscript: a[i]

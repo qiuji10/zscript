@@ -1793,6 +1793,45 @@ bool VM::run(size_t stop_depth) {
                     break;
                 }
 
+                case Op::CallNamed: {
+                    // A=callee, B=num_positional_args, C=num_results
+                    // R[A+B+1] = named-args table {name: value}
+                    // Reorder named args into correct param slots, then call.
+                    uint8_t abs_base = base_reg + A;
+                    // Take VALUE copies so shared_ptr refcounts survive register writes.
+                    Value callee_v  = regs_[abs_base];
+                    Value named_tbl = regs_[abs_base + B + 1];
+                    if (callee_v.is_closure() && named_tbl.is_table()) {
+                        Proto* p = callee_v.as_closure()->proto;
+                        uint8_t total = p->num_params;
+                        // Snapshot named args before touching any registers
+                        std::vector<std::pair<std::string, Value>> named_pairs(
+                            named_tbl.as_table()->hash.begin(),
+                            named_tbl.as_table()->hash.end());
+                        // Fill slots B..total-1 with nil (skipped positional params)
+                        for (uint8_t i = B; i < total; ++i)
+                            regs_[abs_base + 1 + i] = Value::nil();
+                        // Place each named arg into its correct slot
+                        for (auto& [name, val] : named_pairs) {
+                            for (uint8_t i = 0; i < (uint8_t)p->param_names.size(); ++i) {
+                                if (p->param_names[i] == name) {
+                                    regs_[abs_base + 1 + i] = val;
+                                    break;
+                                }
+                            }
+                        }
+                        size_t frames_before = frames_.size();
+                        call(A, total, C);
+                        if (frames_.size() > frames_before) frame_changed = true;
+                    } else {
+                        // Fallback: treat as regular call ignoring named table
+                        size_t frames_before = frames_.size();
+                        call(A, B, C);
+                        if (frames_.size() > frames_before) frame_changed = true;
+                    }
+                    break;
+                }
+
                 case Op::CallMethod: {
                     // A=callee_reg, B=user_args, C=num_results
                     // Layout: R[A]=method, R[A+1]=self, R[A+2..A+1+B]=user args
@@ -1802,6 +1841,46 @@ bool VM::run(size_t stop_depth) {
                     call_method(A, B, C);
                     if (frames_.size() > frames_before) {
                         frame_changed = true;
+                    }
+                    break;
+                }
+
+                case Op::CallMethodNamed: {
+                    // A=method, B=num_positional_user_args, C=num_results
+                    // R[A]=method, R[A+1]=self, R[A+2..A+1+B]=positional user args
+                    // R[A+2+B] = named-args table
+                    uint8_t abs_base = base_reg + A;
+                    // Take VALUE copies so shared_ptr refcounts survive register writes.
+                    Value method_v  = regs_[abs_base];
+                    Value named_tbl = regs_[abs_base + 2 + B];
+                    if (method_v.is_closure() && named_tbl.is_table()) {
+                        Proto* p = method_v.as_closure()->proto;
+                        // param_names[0]="self", user params start at index 1
+                        uint8_t total_user = (uint8_t)(p->param_names.size() > 0
+                                                       ? p->param_names.size() - 1 : 0);
+                        // Snapshot named args before touching any registers
+                        std::vector<std::pair<std::string, Value>> named_pairs(
+                            named_tbl.as_table()->hash.begin(),
+                            named_tbl.as_table()->hash.end());
+                        // Fill slots B..total_user-1 with nil
+                        for (uint8_t i = B; i < total_user; ++i)
+                            regs_[abs_base + 2 + i] = Value::nil();
+                        // Place named args (skipping "self" at param_names[0])
+                        for (auto& [name, val] : named_pairs) {
+                            for (uint8_t i = 1; i < (uint8_t)p->param_names.size(); ++i) {
+                                if (p->param_names[i] == name) {
+                                    regs_[abs_base + 2 + (i - 1)] = val;
+                                    break;
+                                }
+                            }
+                        }
+                        size_t frames_before = frames_.size();
+                        call_method(A, total_user, C);
+                        if (frames_.size() > frames_before) frame_changed = true;
+                    } else {
+                        size_t frames_before = frames_.size();
+                        call_method(A, B, C);
+                        if (frames_.size() > frames_before) frame_changed = true;
                     }
                     break;
                 }

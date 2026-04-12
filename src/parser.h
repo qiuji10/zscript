@@ -87,6 +87,9 @@ private:
     ExprPtr parse_primary();
     ExprPtr parse_lambda();
     ExprPtr finish_string_interp(std::string first_text, SourceLoc loc);
+    // Fills call.args (positional) and call.named_args from the token stream.
+    // Caller must consume '(' before and ')' after.
+    void    parse_call_args(CallExpr& call);
 
     // ---- types ----
     TypePtr parse_type();

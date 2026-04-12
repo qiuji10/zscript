@@ -1195,6 +1195,41 @@ ExprPtr Parser::parse_unary() {
     return parse_postfix();
 }
 
+// ---------------------------------------------------------------------------
+// Call argument list parser
+//
+// Handles positional and named args:
+//   f(1, 2, z: 3)  →  args=[1,2]  named_args=[{z,3}]
+//
+// A named arg is detected by: current token is Ident AND next token is ':'.
+// Once a named arg is seen, all remaining args must also be named.
+// Caller must consume '(' before calling and ')' after.
+// ---------------------------------------------------------------------------
+void Parser::parse_call_args(CallExpr& call) {
+    if (check(TokenKind::RParen)) return; // empty arg list
+
+    bool in_named = false;
+    do {
+        if (check(TokenKind::RParen)) break;
+
+        // Named arg: Ident ':'  (but NOT Ident '::' which would be scope resolution)
+        bool is_named = check(TokenKind::Ident) && peek(1).kind == TokenKind::Colon;
+        if (is_named) {
+            in_named = true;
+            NamedArg na;
+            na.name  = advance().lexeme; // consume ident
+            advance();                   // consume ':'
+            na.value = parse_expr();
+            call.named_args.push_back(std::move(na));
+        } else {
+            if (in_named) {
+                errors_.push_back({cur_loc(), "positional arg cannot follow named arg"});
+            }
+            call.args.push_back(parse_expr());
+        }
+    } while (match(TokenKind::Comma) && !check(TokenKind::RParen));
+}
+
 // Postfix: call, field access, index, generic call, safe/force access
 ExprPtr Parser::parse_postfix() {
     ExprPtr expr = parse_primary();
@@ -1232,11 +1267,7 @@ ExprPtr Parser::parse_postfix() {
             call->callee   = std::move(expr);
             call->type_args = parse_type_arg_list();
             expect(TokenKind::LParen, "expected '(' after generic type arguments");
-            if (!check(TokenKind::RParen)) {
-                do {
-                    call->args.push_back(parse_expr());
-                } while (match(TokenKind::Comma) && !check(TokenKind::RParen));
-            }
+            parse_call_args(*call);
             expect(TokenKind::RParen, "expected ')' to close call");
             expr = std::move(call);
             continue;
@@ -1247,11 +1278,7 @@ ExprPtr Parser::parse_postfix() {
             call->loc    = loc;
             call->callee = std::move(expr);
             advance(); // consume '('
-            if (!check(TokenKind::RParen)) {
-                do {
-                    call->args.push_back(parse_expr());
-                } while (match(TokenKind::Comma) && !check(TokenKind::RParen));
-            }
+            parse_call_args(*call);
             expect(TokenKind::RParen, "expected ')' to close call");
             expr = std::move(call);
             continue;
