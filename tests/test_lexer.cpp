@@ -530,3 +530,41 @@ TEST_CASE("impl for token sequence", "[lexer][integration]") {
     CHECK(kind(ts, 3) == TokenKind::Ident);
     CHECK(ts[3].lexeme == "Transform");
 }
+
+// ---------------------------------------------------------------------------
+// Raw string literals (backtick)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("backtick raw string emits LitString", "[lexer][raw_string]") {
+    auto ts = lex("`hello world`");
+    REQUIRE(ts.size() >= 2);
+    CHECK(kind(ts, 0) == TokenKind::LitString);
+    CHECK(ts[0].lexeme == "hello world");
+}
+
+TEST_CASE("backtick raw string keeps backslash escape sequences literal", "[lexer][raw_string]") {
+    auto ts = lex("`no\\nescape`");
+    REQUIRE(kind(ts, 0) == TokenKind::LitString);
+    // The lexeme should contain a literal backslash followed by 'n', not a newline
+    CHECK(ts[0].lexeme == "no\\nescape");
+}
+
+TEST_CASE("backtick raw string keeps braces literal — no interpolation", "[lexer][raw_string]") {
+    auto ts = lex("`value is {x + 1}`");
+    REQUIRE(kind(ts, 0) == TokenKind::LitString);
+    CHECK(ts[0].lexeme == "value is {x + 1}");
+    // Only one string token + Eof — no InterpStart/InterpEnd
+    CHECK(kind(ts, 1) == TokenKind::Eof);
+}
+
+TEST_CASE("backtick raw string preserves embedded newlines", "[lexer][raw_string]") {
+    auto ts = lex("`line one\nline two`");
+    REQUIRE(kind(ts, 0) == TokenKind::LitString);
+    CHECK(ts[0].lexeme == "line one\nline two");
+}
+
+TEST_CASE("unterminated backtick raw string produces error token", "[lexer][raw_string]") {
+    Lexer l("`oops");
+    auto ts = l.tokenize();
+    CHECK(l.has_errors());
+}

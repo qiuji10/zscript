@@ -39,6 +39,7 @@ private:
     Token scan_next();
     Token scan_number();
     Token scan_string();       // handles interpolation — may push extra tokens
+    Token scan_raw_string();   // backtick string — no escapes, no interpolation, multiline
     Token scan_ident_or_kw();
 
     // String interpolation helper: tokenizes the content between { } inside a

@@ -934,6 +934,221 @@ void VM::open_stdlib() {
     });
 
     globals_["io"] = io_tbl;
+
+    // ── json table ─────────────────────────────────────────────────────────
+    Value json_tbl = Value::from_table();
+    auto* jt = json_tbl.as_table();
+    auto jfn = [&](const std::string& key, NativeFunction::Fn fn) {
+        jt->set(key, Value::from_native("json." + key, std::move(fn)));
+    };
+
+    // json.encode(value) -> string
+    jfn("encode", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty()) return {Value::from_string("null")};
+
+        std::function<std::string(const Value&, int)> encode_val;
+        encode_val = [&](const Value& v, int depth) -> std::string {
+            if (depth > 64) return "null"; // guard against circular structures
+            if (v.is_nil())   return "null";
+            if (v.is_bool())  return v.as_bool() ? "true" : "false";
+            if (v.is_int())   return std::to_string(v.as_int());
+            if (v.is_float()) {
+                double d = v.as_float();
+                if (std::isinf(d) || std::isnan(d)) return "null";
+                std::ostringstream os;
+                os << std::setprecision(17) << d;
+                std::string s = os.str();
+                // Ensure there is a decimal point so JSON consumers know it is a float
+                if (s.find('.') == std::string::npos && s.find('e') == std::string::npos)
+                    s += ".0";
+                return s;
+            }
+            if (v.is_string()) {
+                const std::string& s = v.as_string();
+                std::string out;
+                out += '"';
+                for (unsigned char ch : s) {
+                    switch (ch) {
+                        case '"':  out += "\\\""; break;
+                        case '\\': out += "\\\\"; break;
+                        case '\n': out += "\\n";  break;
+                        case '\r': out += "\\r";  break;
+                        case '\t': out += "\\t";  break;
+                        default:
+                            if (ch < 0x20) {
+                                char buf[8];
+                                snprintf(buf, sizeof(buf), "\\u%04x", ch);
+                                out += buf;
+                            } else {
+                                out += (char)ch;
+                            }
+                    }
+                }
+                out += '"';
+                return out;
+            }
+            if (v.is_table()) {
+                auto* tbl = v.as_table();
+                // Detect array: has no hash keys, or keys are all sequential ints
+                bool is_array = !tbl->array.empty() && tbl->hash.empty();
+                if (is_array) {
+                    std::string out = "[";
+                    for (size_t i = 0; i < tbl->array.size(); ++i) {
+                        if (i > 0) out += ',';
+                        out += encode_val(tbl->array[i], depth + 1);
+                    }
+                    out += ']';
+                    return out;
+                }
+                // Object (hash map — skip internal __ keys)
+                std::string out = "{";
+                bool first = true;
+                for (auto& [k, val] : tbl->hash) {
+                    if (k.size() >= 2 && k[0] == '_' && k[1] == '_') continue;
+                    if (!first) out += ',';
+                    first = false;
+                    out += '"';
+                    out += k;
+                    out += "\":";
+                    out += encode_val(val, depth + 1);
+                }
+                out += '}';
+                return out;
+            }
+            return "null"; // function / userdata
+        };
+
+        return {Value::from_string(encode_val(a[0], 0))};
+    });
+
+    // json.decode(string) -> value
+    jfn("decode", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_string()) return {Value::nil()};
+        const std::string& src = a[0].as_string();
+        size_t pos = 0;
+
+        std::function<Value()> parse_val;
+        auto skip_ws = [&]() {
+            while (pos < src.size() &&
+                   (src[pos] == ' ' || src[pos] == '\t' ||
+                    src[pos] == '\n' || src[pos] == '\r')) ++pos;
+        };
+        auto parse_string = [&]() -> std::string {
+            ++pos; // skip opening "
+            std::string out;
+            while (pos < src.size() && src[pos] != '"') {
+                if (src[pos] == '\\' && pos + 1 < src.size()) {
+                    ++pos;
+                    switch (src[pos]) {
+                        case '"':  out += '"';  break;
+                        case '\\': out += '\\'; break;
+                        case '/':  out += '/';  break;
+                        case 'n':  out += '\n'; break;
+                        case 'r':  out += '\r'; break;
+                        case 't':  out += '\t'; break;
+                        case 'u': {
+                            // \uXXXX — decode to UTF-8 (BMP only)
+                            if (pos + 4 < src.size()) {
+                                unsigned cp = std::stoul(src.substr(pos + 1, 4), nullptr, 16);
+                                pos += 4;
+                                if (cp < 0x80) {
+                                    out += (char)cp;
+                                } else if (cp < 0x800) {
+                                    out += (char)(0xC0 | (cp >> 6));
+                                    out += (char)(0x80 | (cp & 0x3F));
+                                } else {
+                                    out += (char)(0xE0 | (cp >> 12));
+                                    out += (char)(0x80 | ((cp >> 6) & 0x3F));
+                                    out += (char)(0x80 | (cp & 0x3F));
+                                }
+                            }
+                            break;
+                        }
+                        default: out += src[pos]; break;
+                    }
+                } else {
+                    out += src[pos];
+                }
+                ++pos;
+            }
+            if (pos < src.size()) ++pos; // closing "
+            return out;
+        };
+
+        parse_val = [&]() -> Value {
+            skip_ws();
+            if (pos >= src.size()) return Value::nil();
+            char c = src[pos];
+
+            if (c == '"') return Value::from_string(parse_string());
+
+            if (c == '[') {
+                ++pos;
+                Value tbl = Value::from_table();
+                auto* t = tbl.as_table();
+                skip_ws();
+                if (pos < src.size() && src[pos] == ']') { ++pos; return tbl; }
+                while (pos < src.size()) {
+                    t->array.push_back(parse_val());
+                    skip_ws();
+                    if (pos < src.size() && src[pos] == ',') { ++pos; skip_ws(); }
+                    else break;
+                }
+                if (pos < src.size() && src[pos] == ']') ++pos;
+                return tbl;
+            }
+
+            if (c == '{') {
+                ++pos;
+                Value tbl = Value::from_table();
+                auto* t = tbl.as_table();
+                skip_ws();
+                if (pos < src.size() && src[pos] == '}') { ++pos; return tbl; }
+                while (pos < src.size()) {
+                    skip_ws();
+                    if (src[pos] != '"') break;
+                    std::string key = parse_string();
+                    skip_ws();
+                    if (pos < src.size() && src[pos] == ':') ++pos;
+                    Value val = parse_val();
+                    t->set(key, val);
+                    skip_ws();
+                    if (pos < src.size() && src[pos] == ',') { ++pos; skip_ws(); }
+                    else break;
+                }
+                if (pos < src.size() && src[pos] == '}') ++pos;
+                return tbl;
+            }
+
+            if (src.substr(pos, 4) == "true")  { pos += 4; return Value::from_bool(true);  }
+            if (src.substr(pos, 5) == "false") { pos += 5; return Value::from_bool(false); }
+            if (src.substr(pos, 4) == "null")  { pos += 4; return Value::nil();             }
+
+            // number
+            size_t start = pos;
+            if (src[pos] == '-') ++pos;
+            while (pos < src.size() && std::isdigit((unsigned char)src[pos])) ++pos;
+            bool is_float = false;
+            if (pos < src.size() && src[pos] == '.') {
+                is_float = true; ++pos;
+                while (pos < src.size() && std::isdigit((unsigned char)src[pos])) ++pos;
+            }
+            if (pos < src.size() && (src[pos] == 'e' || src[pos] == 'E')) {
+                is_float = true; ++pos;
+                if (pos < src.size() && (src[pos] == '+' || src[pos] == '-')) ++pos;
+                while (pos < src.size() && std::isdigit((unsigned char)src[pos])) ++pos;
+            }
+            std::string num_str = src.substr(start, pos - start);
+            if (num_str.empty()) return Value::nil();
+            if (is_float) return Value::from_float(std::stod(num_str));
+            return Value::from_int(std::stoll(num_str));
+        };
+
+        Value result = parse_val();
+        return {result};
+    });
+
+    globals_["json"] = json_tbl;
 }
 
 // ===========================================================================

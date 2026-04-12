@@ -655,3 +655,47 @@ TEST_CASE("complex expression tree", "[vm][programs]") {
     REQUIRE(c.run("var r = (3 + 4) * (10 - 2) / (2 + 2)"));
     CHECK(std::abs(c.global("r").to_float() - 14.0) < 1e-9);
 }
+
+// ---------------------------------------------------------------------------
+// Raw string literals (backtick)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("raw string literal basic value", "[vm][raw_string]") {
+    Ctx c;
+    REQUIRE(c.run("var s = `hello world`"));
+    CHECK(c.global("s").as_string() == "hello world");
+}
+
+TEST_CASE("raw string keeps backslash sequences literal", "[vm][raw_string]") {
+    Ctx c;
+    REQUIRE(c.run("var s = `no\\nescape`"));
+    // \n inside backtick string = literal backslash + n (not a newline)
+    CHECK(c.global("s").as_string() == "no\\nescape");
+    CHECK(c.global("s").as_string().size() == 10);
+}
+
+TEST_CASE("raw string keeps braces as text — no interpolation", "[vm][raw_string]") {
+    Ctx c;
+    // If interpolation ran, {1+1} would become "2"; in a raw string it stays literal
+    REQUIRE(c.run("var s = `result is {1+1}`"));
+    CHECK(c.global("s").as_string() == "result is {1+1}");
+}
+
+TEST_CASE("raw string multiline is a single string value", "[vm][raw_string]") {
+    // Use C++ raw string to embed a real newline in the source
+    Ctx c;
+    REQUIRE(c.run("var s = `line one\nline two`"));
+    CHECK(c.global("s").as_string() == "line one\nline two");
+}
+
+TEST_CASE("raw string can be concatenated with regular string", "[vm][raw_string]") {
+    Ctx c;
+    REQUIRE(c.run(R"(var s = `path\to\` + "file")"));
+    CHECK(c.global("s").as_string() == "path\\to\\file");
+}
+
+TEST_CASE("raw string len via # operator", "[vm][raw_string]") {
+    Ctx c;
+    REQUIRE(c.run("var n = #`hello`"));
+    CHECK(c.global("n").as_int() == 5);
+}

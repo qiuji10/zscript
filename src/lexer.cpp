@@ -281,6 +281,27 @@ void Lexer::scan_interp_body() {
 }
 
 // ---------------------------------------------------------------------------
+// Raw string literal  ` ... `
+//
+// Backtick-delimited strings:
+//   - No escape processing — backslashes are kept as-is
+//   - No interpolation — { } are kept as-is
+//   - May span multiple lines (newlines are preserved)
+// ---------------------------------------------------------------------------
+Token Lexer::scan_raw_string() {
+    // opening backtick already consumed by scan_next
+    std::string buf;
+    while (!at_end() && peek() != '`') {
+        buf += advance();
+    }
+    if (at_end()) {
+        return error_tok("unterminated raw string literal");
+    }
+    advance(); // closing backtick
+    return make(TokenKind::LitString, buf);
+}
+
+// ---------------------------------------------------------------------------
 // Identifier or keyword
 // ---------------------------------------------------------------------------
 Token Lexer::scan_ident_or_kw() {
@@ -399,6 +420,7 @@ Token Lexer::scan_next() {
 
         // --- string ---
         case '"': return scan_string();
+        case '`': return scan_raw_string();
 
         default:
             if (std::isdigit(c)) {

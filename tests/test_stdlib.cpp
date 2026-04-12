@@ -254,3 +254,117 @@ TEST_CASE("for-in over range() iterates values", "[stdlib][range]") {
     )"));
     CHECK(c.g("sum").as_int() == 10);  // 0+1+2+3+4
 }
+
+// ---------------------------------------------------------------------------
+// json
+// ---------------------------------------------------------------------------
+
+TEST_CASE("json.encode nil", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run("var s = json.encode(nil)"));
+    CHECK(c.g("s").as_string() == "null");
+}
+
+TEST_CASE("json.encode bool", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run("var a = json.encode(true)  var b = json.encode(false)"));
+    CHECK(c.g("a").as_string() == "true");
+    CHECK(c.g("b").as_string() == "false");
+}
+
+TEST_CASE("json.encode int", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run("var s = json.encode(42)"));
+    CHECK(c.g("s").as_string() == "42");
+}
+
+TEST_CASE("json.encode string with escape characters", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run(R"(var s = json.encode("hello\nworld"))"));
+    CHECK(c.g("s").as_string() == "\"hello\\nworld\"");
+}
+
+TEST_CASE("json.encode array", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run("var s = json.encode([1, 2, 3])"));
+    CHECK(c.g("s").as_string() == "[1,2,3]");
+}
+
+TEST_CASE("json.encode object", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let obj = {x: 1, y: 2}
+        var s = json.encode(obj)
+        // decode and verify round-trip rather than comparing key order
+        let back = json.decode(s)
+        var vx = back.x
+        var vy = back.y
+    )"));
+    CHECK(c.g("vx").as_int() == 1);
+    CHECK(c.g("vy").as_int() == 2);
+}
+
+TEST_CASE("json.decode null", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run(R"(var v = json.decode("null"))"));
+    CHECK(c.g("v").is_nil());
+}
+
+TEST_CASE("json.decode bool", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run(R"(var a = json.decode("true")  var b = json.decode("false"))"));
+    CHECK(c.g("a").as_bool() == true);
+    CHECK(c.g("b").as_bool() == false);
+}
+
+TEST_CASE("json.decode int", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run(R"(var v = json.decode("99"))"));
+    CHECK(c.g("v").as_int() == 99);
+}
+
+TEST_CASE("json.decode string", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run(R"(var v = json.decode("\"hello\""))"));
+    CHECK(c.g("v").as_string() == "hello");
+}
+
+TEST_CASE("json.decode array", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let arr = json.decode("[10,20,30]")
+        var a = arr[0]
+        var b = arr[1]
+        var n = #arr
+    )"));
+    CHECK(c.g("a").as_int() == 10);
+    CHECK(c.g("b").as_int() == 20);
+    CHECK(c.g("n").as_int() == 3);
+}
+
+TEST_CASE("json.decode object", "[stdlib][json]") {
+    // Use backtick raw string so { } in the JSON are not treated as interpolation
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let obj = json.decode(`{"name":"Alice","age":30}`)
+        var nm = obj.name
+        var ag = obj.age
+    )"));
+    CHECK(c.g("nm").as_string() == "Alice");
+    CHECK(c.g("ag").as_int()    == 30);
+}
+
+TEST_CASE("json encode/decode round-trip nested", "[stdlib][json]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let orig = {scores: [1, 2, 3], label: "test"}
+        let s    = json.encode(orig)
+        let back = json.decode(s)
+        var lbl  = back.label
+        var sc1  = back.scores[0]
+        var sc3  = back.scores[2]
+    )"));
+    CHECK(c.g("lbl").as_string() == "test");
+    CHECK(c.g("sc1").as_int()    == 1);
+    CHECK(c.g("sc3").as_int()    == 3);
+}

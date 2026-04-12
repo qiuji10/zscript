@@ -88,8 +88,8 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [ ] Named arguments (`fn f(x:, y:)` / `f(x: 1, y: 2)`)
 - [ ] Optional chaining improvements (`?.` / `!.` on method chains)
 - [ ] Delegate `+=` / `-=` event subscription / unsubscription
-- [ ] String built-in methods: `split`, `trim`, `starts_with`, `ends_with`, `replace`, `to_upper`, `to_lower`
-- [ ] String multiline / raw literals — backtick strings or `r"raw \n no escape"` (no escape processing)
+- [x] String built-in methods: already implemented — see stdlib `string` table
+- [x] String multiline / raw literals — backtick strings `` `hello\nworld` `` (no escape processing, no interpolation, multiline)
 - [ ] Range type and range iteration (`0..10`, `0..<10`)
 - [ ] Generics / type parameters (syntax parsed; semantic checking not yet implemented)
 
@@ -205,8 +205,8 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
   - [x] `math`: `floor`, `ceil`, `sqrt`, `abs`, `min`, `max`, `pow`, `round`
   - [x] Array methods (see Language Features above)
   - [x] Table methods (see Language Features above)
-  - [ ] `string`: `split`, `trim`, `starts_with`, `ends_with`, `replace`, `to_upper`, `to_lower`
-  - [ ] `json`: `encode(value) -> string`, `decode(string) -> value`
+  - [x] `string`: `len`, `sub`, `upper`, `lower`, `trim`, `trim_start`, `trim_end`, `contains`, `starts_with`, `ends_with`, `find`, `replace`, `split`, `join`, `rep`, `byte`, `char`, `format`, `is_empty`, `reverse`
+  - [x] `json`: `encode(value) -> string`, `decode(string) -> value` (handles nil, bool, int, float, string, arrays, objects; round-trips)
   - [ ] `io` / `os`: sandboxed file and process access
 - [ ] Whitelist approach: stdlib only available if host approves
 - [x] Test suite: one test file per language feature (lexer, parser, vm, operators, control_flow, functions, classes, collections, closures, error_handling, stdlib, gc, hotpatch)
