@@ -90,7 +90,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [ ] Delegate `+=` / `-=` event subscription / unsubscription
 - [x] String built-in methods: already implemented — see stdlib `string` table
 - [x] String multiline / raw literals — backtick strings `` `hello\nworld` `` (no escape processing, no interpolation, multiline)
-- [ ] Range type and range iteration (`0..10`, `0..<10`)
+- [x] Range type and range iteration (`0..10`, `0..<10`) — first-class range values via `NewRange`/`NewRangeExcl` opcodes; `TLen` and `GetIndex` handle them transparently; passable to functions
 - [ ] Generics / type parameters (syntax parsed; semantic checking not yet implemented)
 
 ---

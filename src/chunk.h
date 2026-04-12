@@ -112,6 +112,10 @@ enum class Op : uint8_t {
     // SliceFrom A, B, C: R[A] = array slice of R[B] starting at index C (8-bit immediate)
     SliceFrom,    // A B C           R[A] = R[B].array[C..]
 
+    // --- Range construction ---
+    NewRange,     // A B C           R[A] = R[B]..R[C]   (inclusive)
+    NewRangeExcl, // A B C           R[A] = R[B]..<R[C]  (exclusive)
+
     // --- Misc ---
     Nop,
 

@@ -1354,11 +1354,18 @@ uint8_t Compiler::compile_binary(const BinaryExpr& e, std::optional<uint8_t> des
         return reg;
     }
 
-    // Range operators: treated as table construction in Phase 2 (VM just needs the pair)
-    // For now emit the left operand — full iteration is handled in compile_for.
+    // Range operators: construct a first-class range value.
+    // NewRange A B C — R[A] = R[B]..R[C]   (inclusive)
+    // NewRangeExcl A B C — R[A] = R[B]..<R[C] (exclusive)
     if (e.op == TokenKind::DotDot || e.op == TokenKind::DotDotLt) {
-        uint8_t reg = dest ? *dest : alloc_reg();
-        compile_expr(*e.left, reg);
+        bool exclusive    = (e.op == TokenKind::DotDotLt);
+        uint8_t start_reg = compile_expr(*e.left);
+        uint8_t end_reg   = compile_expr(*e.right);
+        uint8_t reg       = dest ? *dest : alloc_reg();
+        Op range_op = exclusive ? Op::NewRangeExcl : Op::NewRange;
+        emit_ABC(range_op, reg, start_reg, end_reg, e.loc.line);
+        free_reg(end_reg);
+        free_reg(start_reg);
         return reg;
     }
 

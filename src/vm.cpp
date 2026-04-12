@@ -1602,9 +1602,19 @@ bool VM::run(size_t stop_depth) {
                     Value& obj = R(B);
                     Value& idx = R(C);
                     if (obj.is_table()) {
-                        if (idx.is_int())    R(A) = obj.as_table()->get_index(idx.as_int());
-                        else if (idx.is_string()) R(A) = obj.as_table()->get(idx.as_string());
-                        else R(A) = Value::nil();
+                        auto* tbl = obj.as_table();
+                        auto rs = tbl->hash.find("__range_start__");
+                        if (rs != tbl->hash.end() && idx.is_int()) {
+                            // Range table: R[A] = start + idx
+                            int64_t start = rs->second.as_int();
+                            R(A) = Value::from_int(start + idx.as_int());
+                        } else if (idx.is_int()) {
+                            R(A) = tbl->get_index(idx.as_int());
+                        } else if (idx.is_string()) {
+                            R(A) = tbl->get(idx.as_string());
+                        } else {
+                            R(A) = Value::nil();
+                        }
                     } else {
                         runtime_error("attempt to index non-table value");
                     }
@@ -1860,7 +1870,19 @@ bool VM::run(size_t stop_depth) {
                 case Op::TLen: {
                     auto& src = R(B);
                     if (src.tag == Value::Tag::Table) {
-                        R(A) = Value::from_int((int64_t)src.table_ptr->array.size());
+                        auto& t = src.table_ptr;
+                        // Range table: has __range_start__ field
+                        auto rs = t->hash.find("__range_start__");
+                        if (rs != t->hash.end()) {
+                            int64_t start = rs->second.as_int();
+                            int64_t end   = t->hash["__range_end__"].as_int();
+                            bool excl     = t->hash["__range_exclusive__"].truthy();
+                            int64_t len   = excl ? std::max<int64_t>(0, end - start)
+                                                 : std::max<int64_t>(0, end - start + 1);
+                            R(A) = Value::from_int(len);
+                        } else {
+                            R(A) = Value::from_int((int64_t)t->array.size());
+                        }
                     } else if (src.tag == Value::Tag::String) {
                         R(A) = Value::from_int((int64_t)src.str_ptr->data.size());
                     } else {
@@ -1955,6 +1977,18 @@ bool VM::run(size_t stop_depth) {
                             out.as_table()->array.push_back(arr[i]);
                     }
                     R(A) = std::move(out);
+                    break;
+                }
+
+                case Op::NewRange:
+                case Op::NewRangeExcl: {
+                    bool excl = (op == Op::NewRangeExcl);
+                    Value rng = Value::from_table();
+                    auto* t   = rng.as_table();
+                    t->set("__range_start__",     R(B));
+                    t->set("__range_end__",       R(C));
+                    t->set("__range_exclusive__", Value::from_bool(excl));
+                    R(A) = std::move(rng);
                     break;
                 }
 

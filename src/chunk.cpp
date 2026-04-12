@@ -117,6 +117,8 @@ const char* op_name(Op op) {
         case Op::PopTry:    return "POP_TRY";
         case Op::IsInstance: return "IS_INSTANCE";
         case Op::SliceFrom: return "SLICE_FROM";
+        case Op::NewRange:     return "NEW_RANGE";
+        case Op::NewRangeExcl: return "NEW_RANGE_EXCL";
         case Op::Nop:       return "NOP";
         default:            return "???";
     }

@@ -182,3 +182,89 @@ TEST_CASE("if-expression result used in arithmetic", "[control_flow][if_expr]") 
     )"));
     CHECK(c.g("val").as_int() == 10);
 }
+
+// ---------------------------------------------------------------------------
+// Range type — first-class range values
+// ---------------------------------------------------------------------------
+
+TEST_CASE("range stored in variable and iterated", "[control_flow][range]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let r = 0..4
+        var sum = 0
+        for i in r { sum = sum + i }
+    )"));
+    CHECK(c.g("sum").as_int() == 10);  // 0+1+2+3+4
+}
+
+TEST_CASE("exclusive range stored in variable and iterated", "[control_flow][range]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let r = 0..<5
+        var sum = 0
+        for i in r { sum = sum + i }
+    )"));
+    CHECK(c.g("sum").as_int() == 10);  // 0+1+2+3+4
+}
+
+TEST_CASE("range length via # operator", "[control_flow][range]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let r = 1..5
+        var n = #r
+    )"));
+    CHECK(c.g("n").as_int() == 5);  // 1,2,3,4,5
+}
+
+TEST_CASE("exclusive range length via # operator", "[control_flow][range]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let r = 1..<5
+        var n = #r
+    )"));
+    CHECK(c.g("n").as_int() == 4);  // 1,2,3,4
+}
+
+TEST_CASE("range index access", "[control_flow][range]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let r = 10..14
+        var a = r[0]
+        var b = r[2]
+        var c2 = r[4]
+    )"));
+    CHECK(c.g("a").as_int()  == 10);
+    CHECK(c.g("b").as_int()  == 12);
+    CHECK(c.g("c2").as_int() == 14);
+}
+
+TEST_CASE("range with non-zero start", "[control_flow][range]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var sum = 0
+        for i in 5..9 { sum = sum + i }
+    )"));
+    CHECK(c.g("sum").as_int() == 35);  // 5+6+7+8+9
+}
+
+TEST_CASE("range passed to function and iterated", "[control_flow][range]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn sum_range(r) {
+            var total = 0
+            for i in r { total = total + i }
+            return total
+        }
+        var result = sum_range(1..4)
+    )"));
+    CHECK(c.g("result").as_int() == 10);  // 1+2+3+4
+}
+
+TEST_CASE("for-in range literal still works as compile-time optimization", "[control_flow][range]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var sum = 0
+        for i in 0..4 { sum = sum + i }
+    )"));
+    CHECK(c.g("sum").as_int() == 10);
+}
