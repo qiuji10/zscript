@@ -152,6 +152,9 @@ private:
     // Returns the register holding the result.
     // =========================================================================
     uint8_t compile_expr(const Expr& expr, std::optional<uint8_t> dest = std::nullopt);
+    // Resolve a type argument to a runtime value and emit it into dest_reg.
+    // Class names → GetGlobal; primitive type names → LoadK string; else LoadNil.
+    void emit_type_arg(const TypeExpr& ty, uint8_t dest_reg, uint32_t line);
     uint8_t compile_lit(const LitExpr& e, std::optional<uint8_t> dest);
     uint8_t compile_ident(const IdentExpr& e, std::optional<uint8_t> dest);
     uint8_t compile_binary(const BinaryExpr& e, std::optional<uint8_t> dest);
@@ -184,6 +187,10 @@ private:
     // Class name → set of method names (used during call compilation to know
     // whether a bare call like Foo() is a class instantiation).
     std::unordered_map<std::string, std::vector<std::string>> class_methods_;
+
+    // Free function name → number of type parameters  (e.g. "swap" → 1 for fn swap<T>)
+    // Built during the first pass; used at call sites to emit leading type-arg values.
+    std::unordered_map<std::string, uint8_t> generic_fns_;
 
     // If non-empty, we are compiling a class method and self is in reg 0.
     std::string current_class_;

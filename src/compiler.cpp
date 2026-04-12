@@ -1,6 +1,7 @@
 #include "compiler.h"
 #include <cassert>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace zscript {
 
@@ -230,12 +231,16 @@ void Compiler::compile_top_level(const Program& prog) {
 // ===========================================================================
 void Compiler::compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line) {
     Proto* fn_proto = chunk_->new_proto(fn.name);
-    fn_proto->num_params = (uint8_t)fn.params.size();
+    // Type params come first, then regular params
+    fn_proto->num_params = (uint8_t)(fn.type_params.size() + fn.params.size());
     if (!fn.params.empty() && fn.params.back().is_vararg)
         fn_proto->is_vararg = true;
-    // Store param names for runtime named-arg resolution
-    for (auto& p : fn.params)
-        fn_proto->param_names.push_back(p.name);
+    // Register generic function so call sites know to emit type args
+    if (!fn.type_params.empty())
+        generic_fns_[fn.name] = (uint8_t)fn.type_params.size();
+    // param_names: type params first, then regular params
+    for (auto& tp : fn.type_params) fn_proto->param_names.push_back(tp);
+    for (auto& p  : fn.params)      fn_proto->param_names.push_back(p.name);
 
     // New FnState
     FnState child_fs;
@@ -245,7 +250,12 @@ void Compiler::compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line
     cur_fn_ = &child_fs;
 
     push_scope();
-    // Parameters occupy the first registers
+    // Type parameters occupy the first registers (implicit leading locals)
+    for (auto& tp : fn.type_params) {
+        uint8_t r = alloc_reg();
+        define_local(tp, r, true); // immutable — type params don't change
+    }
+    // Regular parameters follow
     std::vector<uint8_t> param_regs;
     for (auto& param : fn.params) {
         uint8_t r = alloc_reg();
@@ -377,22 +387,32 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
 
         if (fn->is_static) {
             // Static method: no self param — behaves like a regular function
-            fn_proto->num_params = (uint8_t)fn->params.size();
+            fn_proto->num_params = (uint8_t)(fn->type_params.size() + fn->params.size());
+            for (auto& tp : fn->type_params) fn_proto->param_names.push_back(tp);
+            for (auto& param : fn->params)   fn_proto->param_names.push_back(param.name);
+            for (auto& tp : fn->type_params) {
+                uint8_t r = alloc_reg();
+                define_local(tp, r, /*is_let=*/true);
+            }
             for (auto& param : fn->params) {
-                fn_proto->param_names.push_back(param.name);
                 uint8_t r = alloc_reg();
                 define_local(param.name, r, !param.is_mut);
                 method_param_regs.push_back(r);
             }
             static_names.push_back(fn->name);
         } else {
-            // Instance method: self is register 0
-            fn_proto->num_params = (uint8_t)(fn->params.size() + 1);
+            // Instance method: self is register 0, then type params, then regular params
+            fn_proto->num_params = (uint8_t)(fn->type_params.size() + fn->params.size() + 1);
             fn_proto->param_names.push_back("self");
+            for (auto& tp : fn->type_params) fn_proto->param_names.push_back(tp);
+            for (auto& param : fn->params)   fn_proto->param_names.push_back(param.name);
             uint8_t self_reg = alloc_reg();
             define_local("self", self_reg, /*is_let=*/false);
+            for (auto& tp : fn->type_params) {
+                uint8_t r = alloc_reg();
+                define_local(tp, r, /*is_let=*/true);
+            }
             for (auto& param : fn->params) {
-                fn_proto->param_names.push_back(param.name);
                 uint8_t r = alloc_reg();
                 define_local(param.name, r, !param.is_mut);
                 method_param_regs.push_back(r);
@@ -1369,15 +1389,20 @@ uint8_t Compiler::compile_binary(const BinaryExpr& e, std::optional<uint8_t> des
     if (e.op == TokenKind::KwIs) {
         uint8_t reg  = dest ? *dest : alloc_reg();
         uint8_t lreg = compile_expr(*e.left);
-        // Right side must be an identifier (class name)
-        std::string class_name;
+        // Right side must be an identifier (class name or type param local)
         if (auto* id = dynamic_cast<const IdentExpr*>(e.right.get())) {
-            class_name = id->name;
+            int local_reg = resolve_local(id->name);
+            if (local_reg >= 0) {
+                // Type param or local variable — emit dynamic check (R[C] holds the value)
+                emit_ABC(Op::IsInstanceDynamic, reg, lreg, (uint8_t)local_reg, e.loc.line);
+            } else {
+                // Compile-time constant class name
+                uint16_t kidx = str_const(id->name);
+                emit_ABC(Op::IsInstance, reg, lreg, (uint8_t)kidx, e.loc.line);
+            }
         } else {
             throw std::runtime_error("'is' operator requires a class name on the right");
         }
-        uint16_t kidx = str_const(class_name);
-        emit_ABC(Op::IsInstance, reg, lreg, (uint8_t)kidx, e.loc.line);
         free_reg(lreg);
         return reg;
     }
@@ -1679,11 +1704,16 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
 
             // Reset next_reg so user-args pack tightly after self slot.
             cur_fn_->next_reg = base + 2;
+            // Emit type args (e.g. actor.get_component<Rigidbody>()) as leading args
+            for (auto& ta : e.type_args) {
+                uint8_t ar = alloc_reg();
+                emit_type_arg(*ta, ar, e.loc.line);
+            }
             for (auto& arg : e.args) {
                 uint8_t ar = alloc_reg();
                 compile_expr(*arg, ar);
             }
-            uint8_t num_args = (uint8_t)e.args.size();
+            uint8_t num_args = (uint8_t)(e.type_args.size() + e.args.size());
             if (!e.named_args.empty()) {
                 // Build named-args table and emit CallMethodNamed
                 uint8_t tbl_reg = alloc_reg();
@@ -1723,11 +1753,35 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
     // chained call), next_reg may be above base+1. Reset it so that arg
     // registers start immediately after the callee slot.
     cur_fn_->next_reg = base + 1;
+
+    // Emit type args as leading arguments before regular args.
+    // If the call site provides explicit <T> type args, use those.
+    // If the callee is a known generic function and no type args were written,
+    // pad with nil (the function still expects the slots).
+    uint8_t num_type_args = 0;
+    if (!e.type_args.empty()) {
+        for (auto& ta : e.type_args) {
+            uint8_t ar = alloc_reg();
+            emit_type_arg(*ta, ar, e.loc.line);
+        }
+        num_type_args = (uint8_t)e.type_args.size();
+    } else if (auto* id = dynamic_cast<const IdentExpr*>(e.callee.get())) {
+        auto it = generic_fns_.find(id->name);
+        if (it != generic_fns_.end()) {
+            // Known generic called without explicit type args → pad with nil
+            for (uint8_t i = 0; i < it->second; ++i) {
+                uint8_t ar = alloc_reg();
+                emit_ABx(Op::LoadNil, ar, 0, e.loc.line);
+            }
+            num_type_args = it->second;
+        }
+    }
+
     for (auto& arg : e.args) {
         uint8_t arg_reg = alloc_reg();
         compile_expr(*arg, arg_reg);
     }
-    uint8_t num_args = (uint8_t)e.args.size();
+    uint8_t num_args = (uint8_t)(num_type_args + e.args.size());
     if (!e.named_args.empty()) {
         // Build named-args table and emit CallNamed
         uint8_t tbl_reg = alloc_reg();
@@ -1940,6 +1994,41 @@ uint8_t Compiler::compile_array(const ArrayExpr& e, std::optional<uint8_t> dest)
     }
 
     return reg;
+}
+
+// ===========================================================================
+// emit_type_arg — resolve a TypeExpr to a runtime value in dest_reg
+//   NamedType "int"|"float"|"string"|"bool"|"nil" → LoadK(type-name string)
+//   NamedType anything else                        → GetGlobal (class table)
+//   GenericType (e.g. List<T>)                     → GetGlobal(outer name)
+//   NullableType                                   → recurse on inner type
+// ===========================================================================
+void Compiler::emit_type_arg(const TypeExpr& ty, uint8_t dest_reg, uint32_t line) {
+    // Primitive type names become string constants so scripts can compare:
+    //   if T == "int" { ... }
+    static const std::unordered_set<std::string> primitives = {
+        "int", "float", "string", "bool", "nil", "any"
+    };
+
+    if (auto* nt = dynamic_cast<const NamedType*>(&ty)) {
+        if (primitives.count(nt->name)) {
+            uint16_t k = str_const(nt->name);
+            emit_ABx(Op::LoadK, dest_reg, k, line);
+        } else {
+            // Class / user-defined type → look up the class table as a global
+            uint16_t k = str_const(nt->name);
+            emit_ABx(Op::GetGlobal, dest_reg, k, line);
+        }
+    } else if (auto* gt = dynamic_cast<const GenericType*>(&ty)) {
+        // e.g. List<Int> — use the outer class name
+        uint16_t k = str_const(gt->name);
+        emit_ABx(Op::GetGlobal, dest_reg, k, line);
+    } else if (auto* nullable = dynamic_cast<const NullableType*>(&ty)) {
+        // Enemy? — treat as Enemy at runtime (nullable is a type-system annotation)
+        emit_type_arg(*nullable->inner, dest_reg, line);
+    } else {
+        emit_ABx(Op::LoadNil, dest_reg, 0, line);
+    }
 }
 
 } // namespace zscript

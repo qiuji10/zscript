@@ -109,3 +109,7 @@ catch_discover_tests(test_io_os)
 add_executable(test_delegates tests/test_delegates.cpp)
 target_link_libraries(test_delegates PRIVATE zscript_core Catch2::Catch2WithMain)
 catch_discover_tests(test_delegates)
+
+add_executable(test_generics tests/test_generics.cpp)
+target_link_libraries(test_generics PRIVATE zscript_core Catch2::Catch2WithMain)
+catch_discover_tests(test_generics)

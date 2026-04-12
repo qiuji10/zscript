@@ -118,7 +118,8 @@ const char* op_name(Op op) {
         case Op::Throw:     return "THROW";
         case Op::PushTry:   return "PUSH_TRY";
         case Op::PopTry:    return "POP_TRY";
-        case Op::IsInstance: return "IS_INSTANCE";
+        case Op::IsInstance:        return "IS_INSTANCE";
+        case Op::IsInstanceDynamic: return "IS_INSTANCE_DYN";
         case Op::SliceFrom: return "SLICE_FROM";
         case Op::NewRange:         return "NEW_RANGE";
         case Op::NewRangeExcl:     return "NEW_RANGE_EXCL";

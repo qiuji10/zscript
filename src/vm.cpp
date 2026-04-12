@@ -2322,6 +2322,49 @@ bool VM::run(size_t stop_depth) {
                     break;
                 }
 
+                case Op::IsInstanceDynamic: {
+                    // A=dest, B=object, C=reg holding type (class table or string name)
+                    Value type_val = R(C);  // value copy — may be string or table
+                    Value& obj = R(B);
+                    bool result = false;
+                    // Determine target: if type_val is a table (class prototype), match by
+                    // comparing __class__ chain against the class table's own __class__ name.
+                    // If type_val is a string (primitive type name), compare __class__ directly.
+                    std::string target;
+                    if (type_val.is_string()) {
+                        target = type_val.as_string();
+                    } else if (type_val.is_table()) {
+                        // Extract the class name from the prototype table
+                        auto& h = type_val.as_table()->hash;
+                        auto cit = h.find("__class__");
+                        if (cit != h.end() && cit->second.is_string())
+                            target = cit->second.as_string();
+                    }
+                    if (!target.empty() && obj.is_table()) {
+                        const std::string trait_key = "__trait_" + target + "__";
+                        auto* tbl = obj.as_table();
+                        auto it = tbl->hash.find("__class__");
+                        if (it != tbl->hash.end() && it->second.is_string()) {
+                            std::string cur = it->second.as_string();
+                            while (true) {
+                                if (cur == target) { result = true; break; }
+                                auto git = globals_.find(cur);
+                                if (git == globals_.end() || !git->second.is_table()) break;
+                                auto* ct = git->second.as_table();
+                                if (ct->get(trait_key).truthy()) { result = true; break; }
+                                auto bit = ct->hash.find("__base__");
+                                if (bit == ct->hash.end() || !bit->second.is_table()) break;
+                                auto* bt = bit->second.as_table();
+                                auto cnit = bt->hash.find("__class__");
+                                if (cnit == bt->hash.end() || !cnit->second.is_string()) break;
+                                cur = cnit->second.as_string();
+                            }
+                        }
+                    }
+                    R(A) = Value::from_bool(result);
+                    break;
+                }
+
                 case Op::SliceFrom: {
                     // A=dest, B=src_table, C=start_index (8-bit immediate)
                     Value& src = R(B);
