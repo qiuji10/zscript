@@ -1228,6 +1228,24 @@ uint8_t Compiler::compile_expr(const Expr& expr, std::optional<uint8_t> dest) {
         uint8_t obj = compile_expr(*e->object);
         uint8_t idx = compile_expr(*e->index);
         uint8_t reg = dest ? *dest : alloc_reg();
+        if (e->access == IndexExpr::Access::Force) {
+            emit_ABx(Op::CheckNil, obj, 0, e->loc.line);
+        }
+        if (e->access == IndexExpr::Access::Safe) {
+            uint8_t cmp = alloc_reg();
+            emit_ABx(Op::LoadNil, cmp, 0, e->loc.line);
+            emit_ABC(Op::Eq, cmp, obj, cmp, e->loc.line);
+            size_t jmp_nil = emit_jump(Op::JumpTrue, cmp, e->loc.line);
+            free_reg(cmp);
+            emit_ABC(Op::GetIndex, reg, obj, idx, e->loc.line);
+            size_t jmp_end = emit_sBx(Op::Jump, 0, e->loc.line);
+            patch_jump(jmp_nil);
+            emit_ABx(Op::LoadNil, reg, 0, e->loc.line);
+            patch_jump(jmp_end);
+            free_reg(idx);
+            free_reg(obj);
+            return reg;
+        }
         emit_ABC(Op::GetIndex, reg, obj, idx, e->loc.line);
         free_reg(idx);
         free_reg(obj);
@@ -1604,9 +1622,11 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
     // Layout: R[base]=method, R[base+1]=self(obj), R[base+2..]=user args
     // Uses Op::CallMethod so the VM knows to skip self for native callees.
     if (auto* field = dynamic_cast<const FieldExpr*>(e.callee.get())) {
-        if (field->access == FieldExpr::Access::Dot ||
-            field->access == FieldExpr::Access::Safe) {
-            bool is_safe = (field->access == FieldExpr::Access::Safe);
+        if (field->access == FieldExpr::Access::Dot  ||
+            field->access == FieldExpr::Access::Safe ||
+            field->access == FieldExpr::Access::Force) {
+            bool is_safe  = (field->access == FieldExpr::Access::Safe);
+            bool is_force = (field->access == FieldExpr::Access::Force);
 
             // Detect super.method(args) — fetch method from parent prototype but
             // use current self (reg 0) as the receiver, not the parent table.
@@ -1640,6 +1660,10 @@ uint8_t Compiler::compile_call(const CallExpr& e, std::optional<uint8_t> dest) {
                     emit_ABC(Op::Eq, cmp_reg, s_reg, cmp_reg, field->loc.line);
                     jmp_nil = emit_jump(Op::JumpTrue, cmp_reg, field->loc.line);
                     free_reg(cmp_reg);
+                }
+                if (is_force) {
+                    // CheckNil: crash with message if object is nil
+                    emit_ABx(Op::CheckNil, s_reg, str_const(field->field), field->loc.line);
                 }
                 uint16_t nk = str_const(field->field);
                 emit_ABx(Op::GetField, m_reg,

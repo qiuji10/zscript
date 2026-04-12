@@ -219,6 +219,137 @@ TEST_CASE("optional chain combined with nil-coalescing", "[operators][optional_c
     CHECK(c.g("name").as_string() == "anonymous");
 }
 
+TEST_CASE("multi-level safe chain a?.b?.c both non-nil", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let inner = {val: 42}
+        let outer = {inner: inner}
+        let r = outer?.inner?.val
+    )"));
+    CHECK(c.g("r").as_int() == 42);
+}
+
+TEST_CASE("multi-level safe chain short-circuits at first nil", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let outer = nil
+        let r = outer?.inner?.val
+    )"));
+    CHECK(c.g("r").tag == Value::Tag::Nil);
+}
+
+TEST_CASE("multi-level safe chain short-circuits at second nil", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let outer = {inner: nil}
+        let r = outer?.inner?.val
+    )"));
+    CHECK(c.g("r").tag == Value::Tag::Nil);
+}
+
+TEST_CASE("safe chain then safe method call a?.b?.method()", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Inner {
+            fn init(v) { self.v = v }
+            fn double() { return self.v * 2 }
+        }
+        let wrapper = {node: Inner(7)}
+        let r = wrapper?.node?.double()
+    )"));
+    CHECK(c.g("r").as_int() == 14);
+}
+
+TEST_CASE("safe chain method returns nil when first obj nil", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let wrapper = nil
+        let r = wrapper?.node?.double()
+    )"));
+    CHECK(c.g("r").tag == Value::Tag::Nil);
+}
+
+TEST_CASE("chained safe method calls a?.m()?.n()", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Chain {
+            fn init(n) { self.n = n }
+            fn next()  { return Chain(self.n + 1) }
+            fn val()   { return self.n }
+        }
+        let c1 = Chain(10)
+        let r = c1?.next()?.val()
+    )"));
+    CHECK(c.g("r").as_int() == 11);
+}
+
+TEST_CASE("chained safe method calls returns nil when root nil", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let c1 = nil
+        let r = c1?.next()?.val()
+    )"));
+    CHECK(c.g("r").tag == Value::Tag::Nil);
+}
+
+TEST_CASE("safe field access result used in nil-coalescing", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let t = {x: 0}
+        let r = t?.missing ?? 99
+    )"));
+    CHECK(c.g("r").as_int() == 99);
+}
+
+TEST_CASE("force unwrap !. method call invokes with self", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        class Greeter {
+            fn init(name) { self.name = name }
+            fn greet() { return "hello " + self.name }
+        }
+        let g = Greeter("world")
+        let r = g!.greet()
+    )"));
+    CHECK(c.g("r").as_string() == "hello world");
+}
+
+TEST_CASE("force unwrap !. field access", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let t = {x: 55}
+        let r = t!.x
+    )"));
+    CHECK(c.g("r").as_int() == 55);
+}
+
+TEST_CASE("safe subscript ?.[i] on non-nil array", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let arr = [10, 20, 30]
+        let r = arr?.[1]
+    )"));
+    CHECK(c.g("r").as_int() == 20);
+}
+
+TEST_CASE("safe subscript ?.[i] on nil returns nil", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let arr = nil
+        let r = arr?.[0]
+    )"));
+    CHECK(c.g("r").tag == Value::Tag::Nil);
+}
+
+TEST_CASE("safe subscript chain arr?.[0]?.field", "[operators][optional_chain]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        let arr = [{name: "Alice"}, {name: "Bob"}]
+        let r = arr?.[0]?.name
+    )"));
+    CHECK(c.g("r").as_string() == "Alice");
+}
+
 // ---------------------------------------------------------------------------
 // not keyword (alias for !)
 // ---------------------------------------------------------------------------

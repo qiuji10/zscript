@@ -86,7 +86,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Array built-in methods: `push`, `pop`, `slice`, `index_of`, `reverse`, `concat`, `first`, `last`, `map`, `filter`, `reduce`, `each`, `any`, `all`, `flat`
 - [x] Table built-in methods: `keys`, `values`, `contains`, `remove`, `len`
 - [x] Named arguments `f(x: 1, y: 2)` — runtime-resolved via `param_names` in Proto; works with free functions, methods, closures; mixes with positional args; triggers default values for skipped params
-- [ ] Optional chaining improvements (`?.` / `!.` on method chains)
+- [x] Optional chaining improvements (`?.` / `!.` on method chains) — multi-level chains, `!.method()` self dispatch, `?.[i]` / `!.[i]` safe/force subscript
 - [ ] Delegate `+=` / `-=` event subscription / unsubscription
 - [x] String built-in methods: already implemented — see stdlib `string` table
 - [x] String multiline / raw literals — backtick strings `` `hello\nworld` `` (no escape processing, no interpolation, multiline)

@@ -144,8 +144,9 @@ struct CallExpr : Expr {
     std::vector<NamedArg> named_args; // named args (after positionals)
 };
 
-// Subscript: a[i]
+// Subscript: a[i]  /  a?.[i]  /  a!.[i]
 struct IndexExpr : Expr {
+    enum class Access { Normal, Safe, Force } access = Access::Normal;
     ExprPtr object;
     ExprPtr index;
 };

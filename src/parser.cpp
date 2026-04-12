@@ -1238,12 +1238,29 @@ ExprPtr Parser::parse_postfix() {
         SourceLoc loc = cur_loc();
 
         // Field access: .name  /  ?.name  /  !.name
+        // Also handles safe/force subscript: ?.[i]  /  !.[i]
         if (check(TokenKind::Dot) || check(TokenKind::QDot) || check(TokenKind::BangDot)) {
             FieldExpr::Access access =
                 check(TokenKind::Dot)     ? FieldExpr::Access::Dot   :
                 check(TokenKind::QDot)    ? FieldExpr::Access::Safe  :
                                             FieldExpr::Access::Force;
             advance(); // consume . / ?. / !.
+
+            // Safe/force subscript: ?.[expr]  /  !.[expr]
+            if (access != FieldExpr::Access::Dot && check(TokenKind::LBracket)) {
+                advance(); // consume [
+                auto node    = std::make_unique<IndexExpr>();
+                node->loc    = loc;
+                node->access = (access == FieldExpr::Access::Safe)
+                                   ? IndexExpr::Access::Safe
+                                   : IndexExpr::Access::Force;
+                node->object = std::move(expr);
+                node->index  = parse_expr();
+                expect(TokenKind::RBracket, "expected ']'");
+                expr = std::move(node);
+                continue;
+            }
+
             std::string field = expect(TokenKind::Ident, "expected field name after '.'").lexeme;
 
             // Check if this is actually a method call: .name(   or .name<T>(
