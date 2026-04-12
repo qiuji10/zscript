@@ -1518,9 +1518,16 @@ uint8_t Compiler::compile_assign(const AssignExpr& e, std::optional<uint8_t> des
             uint8_t cur_reg = alloc_reg();
             emit_ABx(Op::GetField, cur_reg,
                      (uint16_t)((uint16_t)obj_reg << 8 | (name_k & 0xFF)), e.loc.line);
-            // Apply op: val_reg = cur_reg OP val_reg
             uint8_t res_reg = alloc_reg();
-            emit_ABC(compound_op(e.op), res_reg, cur_reg, val_reg, e.loc.line);
+            // += / -= use DelegateAdd/DelegateSub so that callable RHS builds a
+            // delegate while numeric RHS falls back to arithmetic at runtime.
+            if (e.op == TokenKind::PlusAssign) {
+                emit_ABC(Op::DelegateAdd, res_reg, cur_reg, val_reg, e.loc.line);
+            } else if (e.op == TokenKind::MinusAssign) {
+                emit_ABC(Op::DelegateSub, res_reg, cur_reg, val_reg, e.loc.line);
+            } else {
+                emit_ABC(compound_op(e.op), res_reg, cur_reg, val_reg, e.loc.line);
+            }
             free_reg(cur_reg);
             // Store back
             emit_ABx(Op::SetField, obj_reg, (uint16_t)((name_k << 8) | res_reg), e.loc.line);

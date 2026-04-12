@@ -24,8 +24,9 @@ bool Value::operator==(const Value& o) const {
         case Tag::Float:   return f == o.f;
         case Tag::String:  return str_ptr->data == o.str_ptr->data;
         case Tag::Table:   return table_ptr.get() == o.table_ptr.get();
-        case Tag::Closure: return closure_ptr.get() == o.closure_ptr.get();
-        case Tag::Native:  return native_ptr.get() == o.native_ptr.get();
+        case Tag::Closure:  return closure_ptr.get() == o.closure_ptr.get();
+        case Tag::Native:   return native_ptr.get() == o.native_ptr.get();
+        case Tag::Delegate: return delegate_ptr.get() == o.delegate_ptr.get();
     }
     return false;
 }
@@ -46,8 +47,9 @@ std::string Value::to_string() const {
         }
         case Tag::String:  return str_ptr->data;
         case Tag::Table:   return "<table>";
-        case Tag::Closure: return "<fn " + closure_ptr->proto->name + ">";
-        case Tag::Native:  return "<native " + native_ptr->name + ">";
+        case Tag::Closure:  return "<fn " + closure_ptr->proto->name + ">";
+        case Tag::Native:   return "<native " + native_ptr->name + ">";
+        case Tag::Delegate: return "<delegate[" + std::to_string(delegate_ptr->handlers.size()) + "]>";
     }
     return "<?>";
 }
@@ -60,8 +62,9 @@ std::string Value::type_name() const {
         case Tag::Float:   return "float";
         case Tag::String:  return "string";
         case Tag::Table:   return "table";
-        case Tag::Closure: return "function";
-        case Tag::Native:  return "native";
+        case Tag::Closure:  return "function";
+        case Tag::Native:   return "native";
+        case Tag::Delegate: return "delegate";
     }
     return "unknown";
 }
@@ -121,6 +124,8 @@ const char* op_name(Op op) {
         case Op::NewRangeExcl:     return "NEW_RANGE_EXCL";
         case Op::CallNamed:        return "CALL_NAMED";
         case Op::CallMethodNamed:  return "CALL_METHOD_NAMED";
+        case Op::DelegateAdd: return "DELEGATE_ADD";
+        case Op::DelegateSub: return "DELEGATE_SUB";
         case Op::Nop:       return "NOP";
         default:            return "???";
     }

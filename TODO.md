@@ -87,7 +87,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Table built-in methods: `keys`, `values`, `contains`, `remove`, `len`
 - [x] Named arguments `f(x: 1, y: 2)` — runtime-resolved via `param_names` in Proto; works with free functions, methods, closures; mixes with positional args; triggers default values for skipped params
 - [x] Optional chaining improvements (`?.` / `!.` on method chains) — multi-level chains, `!.method()` self dispatch, `?.[i]` / `!.[i]` safe/force subscript
-- [ ] Delegate `+=` / `-=` event subscription / unsubscription
+- [x] Delegate `+=` / `-=` event subscription / unsubscription — `ZDelegate` type, `DelegateAdd`/`DelegateSub` opcodes; `obj.ev()` fires all handlers; arithmetic `+=`/`-=` still works on non-callable RHS
 - [x] String built-in methods: already implemented — see stdlib `string` table
 - [x] String multiline / raw literals — backtick strings `` `hello\nworld` `` (no escape processing, no interpolation, multiline)
 - [x] Range type and range iteration (`0..10`, `0..<10`) — first-class range values via `NewRange`/`NewRangeExcl` opcodes; `TLen` and `GetIndex` handle them transparently; passable to functions

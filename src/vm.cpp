@@ -1549,6 +1549,26 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
         }
     }
 
+    // ── Delegate call ─────────────────────────────────────────────────────────
+    if (callee.is_delegate()) {
+        // Snapshot handlers and args before any register writes.
+        std::vector<Value> handlers = callee.as_delegate()->handlers;
+        std::vector<Value> args;
+        args.reserve(num_args);
+        for (uint8_t i = 0; i < num_args; ++i)
+            args.push_back(regs_[abs_base + 1 + i]);
+
+        Value last_result = Value::nil();
+        for (auto& h : handlers) {
+            auto results = invoke_from_native(h, args);
+            if (!results.empty()) last_result = results[0];
+        }
+        // Write result (no frame pushed — inline return).
+        for (uint8_t i = 0; i < num_results; ++i)
+            regs_[abs_base + i] = (i == 0) ? last_result : Value::nil();
+        return true;
+    }
+
     runtime_error("attempt to call non-callable value (type: " + callee.type_name() + ")");
     return false;
 }
@@ -1610,6 +1630,25 @@ bool VM::call_method(uint8_t base_reg_offset, uint8_t user_args, uint8_t num_res
         for (uint8_t i = 0; i < user_args; ++i)
             regs_[abs_A + 1 + i] = regs_[abs_A + 2 + i];
         return call(base_reg_offset, user_args, num_results);
+    }
+
+    // ── Delegate call via method syntax (obj.event(...)) ─────────────────────
+    if (callee.is_delegate()) {
+        // user args are at abs_A+2..abs_A+1+user_args (after self at abs_A+1)
+        std::vector<Value> handlers = callee.as_delegate()->handlers;
+        std::vector<Value> args;
+        args.reserve(user_args);
+        for (uint8_t i = 0; i < user_args; ++i)
+            args.push_back(regs_[abs_A + 2 + i]);
+
+        Value last_result = Value::nil();
+        for (auto& h : handlers) {
+            auto results = invoke_from_native(h, args);
+            if (!results.empty()) last_result = results[0];
+        }
+        for (uint8_t i = 0; i < num_results; ++i)
+            regs_[abs_A + i] = (i == 0) ? last_result : Value::nil();
+        return true;
     }
 
     runtime_error("attempt to call non-callable value (type: " + callee.type_name() + ")");
@@ -1828,6 +1867,66 @@ bool VM::run(size_t stop_depth) {
                     else if (lv.is_number() && rv.is_number())
                         R(A) = Value::from_float(lv.to_float() - rv.to_float());
                     else runtime_error("type error in '-'");
+                    break;
+                }
+
+                case Op::DelegateAdd: {
+                    // R[A] = delegate_add(R[B], R[C])
+                    // If R[C] is callable: extend/create delegate.
+                    // Otherwise: fallback to R[B] + R[C] arithmetic.
+                    Value lv = R(B); // value copies — register writes below must not alias
+                    Value rv = R(C);
+                    if (rv.is_callable()) {
+                        if (lv.is_nil()) {
+                            // field was unset — create a fresh delegate
+                            Value d = Value::from_delegate();
+                            d.as_delegate()->handlers.push_back(rv);
+                            R(A) = std::move(d);
+                        } else if (lv.is_delegate()) {
+                            // extend existing delegate in-place; R[A] == R[B] is fine
+                            lv.as_delegate()->handlers.push_back(rv);
+                            R(A) = std::move(lv);
+                        } else if (lv.is_callable()) {
+                            // promote bare callable to delegate, then append
+                            Value d = Value::from_delegate();
+                            d.as_delegate()->handlers.push_back(lv);
+                            d.as_delegate()->handlers.push_back(rv);
+                            R(A) = std::move(d);
+                        } else {
+                            runtime_error("delegate +=: left side is not nil/callable/delegate");
+                        }
+                    } else {
+                        // Arithmetic fallback — same as Op::Add
+                        if (lv.is_int() && rv.is_int())
+                            R(A) = Value::from_int(lv.as_int() + rv.as_int());
+                        else if (lv.is_number() && rv.is_number())
+                            R(A) = Value::from_float(lv.to_float() + rv.to_float());
+                        else if (lv.is_string() && rv.is_string())
+                            R(A) = Value::from_string(lv.as_string() + rv.as_string());
+                        else runtime_error("type error in '+='");
+                    }
+                    break;
+                }
+
+                case Op::DelegateSub: {
+                    // R[A] = delegate_remove(R[B], R[C])
+                    // If R[B] is delegate and R[C] is callable: remove matching handler.
+                    // Otherwise: fallback to R[B] - R[C] arithmetic.
+                    Value lv = R(B);
+                    Value rv = R(C);
+                    if (lv.is_delegate() && rv.is_callable()) {
+                        auto& hs = lv.as_delegate()->handlers;
+                        hs.erase(std::remove_if(hs.begin(), hs.end(),
+                            [&rv](const Value& h) { return h == rv; }), hs.end());
+                        R(A) = std::move(lv);
+                    } else {
+                        // Arithmetic fallback — same as Op::Sub
+                        if (lv.is_int() && rv.is_int())
+                            R(A) = Value::from_int(lv.as_int() - rv.as_int());
+                        else if (lv.is_number() && rv.is_number())
+                            R(A) = Value::from_float(lv.to_float() - rv.to_float());
+                        else runtime_error("type error in '-='");
+                    }
                     break;
                 }
                 case Op::Mul: {

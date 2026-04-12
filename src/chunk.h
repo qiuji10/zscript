@@ -122,6 +122,14 @@ enum class Op : uint8_t {
     // CallMethodNamed A B C: like CallMethod but R[A+B+2] is a named-args table
     CallMethodNamed,  // A B C           R[A](self=R[A+1], pos R[A+2..A+B+1], named R[A+B+2])
 
+    // --- Delegate ---
+    // DelegateAdd A B C: R[A] = delegate_add(R[B], R[C])
+    //   If R[C] is callable: build/extend delegate.  Otherwise: R[A] = R[B] + R[C] (arithmetic).
+    DelegateAdd,   // A B C
+    // DelegateSub A B C: R[A] = delegate_remove(R[B], R[C])
+    //   If R[B] is delegate: remove matching handler.  Otherwise: R[A] = R[B] - R[C].
+    DelegateSub,   // A B C
+
     // --- Misc ---
     Nop,
 
