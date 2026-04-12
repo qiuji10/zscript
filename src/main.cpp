@@ -113,6 +113,8 @@ static int cmd_run(int argc, char* argv[]) {
     VM vm;
     vm.set_engine(engine);
     vm.open_stdlib();
+    vm.open_io();
+    vm.open_os();
 
     // Add the script's directory to the module search path for imports.
     auto sep = file.find_last_of("/\\");

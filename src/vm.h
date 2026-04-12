@@ -45,6 +45,8 @@ public:
 
     void register_function(const std::string& name, NativeFunction::Fn fn);
     void open_stdlib();
+    void open_io();   // file I/O (opt-in — not called by open_stdlib)
+    void open_os();   // OS / path utilities (opt-in — not called by open_stdlib)
 
     // --- module system ---
     ModuleLoader& loader() { return loader_; }

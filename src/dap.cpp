@@ -345,6 +345,8 @@ void DapServer::launch_script(const std::string& path) {
 
     vm_ = std::make_unique<VM>();
     vm_->open_stdlib();
+    vm_->open_io();
+    vm_->open_os();
 
     // Register a line hook — the VM doesn't have a native hook yet, so
     // we run the script and emit a stopped event when we detect we should stop.

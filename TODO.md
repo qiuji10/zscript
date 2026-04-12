@@ -207,8 +207,9 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
   - [x] Table methods (see Language Features above)
   - [x] `string`: `len`, `sub`, `upper`, `lower`, `trim`, `trim_start`, `trim_end`, `contains`, `starts_with`, `ends_with`, `find`, `replace`, `split`, `join`, `rep`, `byte`, `char`, `format`, `is_empty`, `reverse`
   - [x] `json`: `encode(value) -> string`, `decode(string) -> value` (handles nil, bool, int, float, string, arrays, objects; round-trips)
-  - [ ] `io` / `os`: sandboxed file and process access
-- [ ] Whitelist approach: stdlib only available if host approves
+  - [x] `io`: `read_file`, `write_file`, `append_file`, `lines`, `size`, `exists`, `delete_file`, `rename`, `copy_file`, `read_line`, `print_err`
+  - [x] `os`: `getcwd`, `chdir`, `mkdir`, `rmdir`, `listdir`, `getenv`, `time`, `clock`, `platform`, `exit`; `os.path`: `join`, `dirname`, `basename`, `stem`, `ext`, `abs`, `exists`, `is_file`, `is_dir`
+- [x] Sandbox approach: `open_io()` / `open_os()` are separate opt-in calls — not included by `open_stdlib()`; host controls file/OS access
 - [x] Test suite: one test file per language feature (lexer, parser, vm, operators, control_flow, functions, classes, collections, closures, error_handling, stdlib, gc, hotpatch)
 - [ ] Fuzzer for lexer + parser
 - [ ] CI: build matrix (Windows / Linux / macOS)

@@ -101,3 +101,7 @@ catch_discover_tests(test_gc_module)
 add_executable(test_hotpatch tests/test_hotpatch.cpp)
 target_link_libraries(test_hotpatch PRIVATE zscript_core Catch2::Catch2WithMain)
 catch_discover_tests(test_hotpatch)
+
+add_executable(test_io_os tests/test_io_os.cpp)
+target_link_libraries(test_io_os PRIVATE zscript_core Catch2::Catch2WithMain)
+catch_discover_tests(test_io_os)

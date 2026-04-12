@@ -5,8 +5,10 @@
 #include "parser.h"
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -888,53 +890,6 @@ void VM::open_stdlib() {
     // Populate table_methods_ so that arr.push(x) works
     for (auto& [k, v] : tm->hash) table_methods_[k] = v;
 
-    // ── io table ───────────────────────────────────────────────────────────
-    Value io_tbl = Value::from_table();
-    auto* it = io_tbl.as_table();
-    auto ifn = [&](const std::string& key, NativeFunction::Fn fn) {
-        it->set(key, Value::from_native("io." + key, std::move(fn)));
-    };
-
-    ifn("read_file", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
-        std::string path = str_arg(a, 0);
-        std::ifstream f(path, std::ios::binary);
-        if (!f) return {Value::nil()};
-        std::ostringstream ss; ss << f.rdbuf();
-        return {Value::from_string(ss.str())};
-    });
-    ifn("write_file", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
-        std::string path = str_arg(a, 0);
-        std::string data = str_arg(a, 1);
-        std::ofstream f(path, std::ios::binary);
-        if (!f) return {Value::from_bool(false)};
-        f << data;
-        return {Value::from_bool(true)};
-    });
-    ifn("append_file", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
-        std::string path = str_arg(a, 0);
-        std::string data = str_arg(a, 1);
-        std::ofstream f(path, std::ios::binary | std::ios::app);
-        if (!f) return {Value::from_bool(false)};
-        f << data;
-        return {Value::from_bool(true)};
-    });
-    ifn("read_line", [](std::vector<Value> /*a*/) -> std::vector<Value> {
-        std::string line;
-        if (!std::getline(std::cin, line)) return {Value::nil()};
-        return {Value::from_string(line)};
-    });
-    ifn("print_err", [](std::vector<Value> a) -> std::vector<Value> {
-        for (auto& v : a) std::cerr << v.to_string();
-        std::cerr << '\n';
-        return {};
-    });
-    ifn("exists", [&str_arg](std::vector<Value> a) -> std::vector<Value> {
-        std::ifstream f(str_arg(a, 0));
-        return {Value::from_bool(f.good())};
-    });
-
-    globals_["io"] = io_tbl;
-
     // ── json table ─────────────────────────────────────────────────────────
     Value json_tbl = Value::from_table();
     auto* jt = json_tbl.as_table();
@@ -1149,6 +1104,229 @@ void VM::open_stdlib() {
     });
 
     globals_["json"] = json_tbl;
+}
+
+// ===========================================================================
+// open_io — opt-in file I/O stdlib
+// ===========================================================================
+void VM::open_io() {
+    auto str_arg = [](const std::vector<Value>& a, size_t i) -> std::string {
+        if (i >= a.size()) return "";
+        return a[i].is_string() ? a[i].as_string() : a[i].to_string();
+    };
+
+    Value io_tbl = Value::from_table();
+    auto* it = io_tbl.as_table();
+    auto ifn = [&](const std::string& key, NativeFunction::Fn fn) {
+        it->set(key, Value::from_native("io." + key, std::move(fn)));
+    };
+
+    ifn("read_file", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::ifstream f(str_arg(a, 0), std::ios::binary);
+        if (!f) return {Value::nil()};
+        std::ostringstream ss; ss << f.rdbuf();
+        return {Value::from_string(ss.str())};
+    });
+    ifn("write_file", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::ofstream f(str_arg(a, 0), std::ios::binary);
+        if (!f) return {Value::from_bool(false)};
+        f << str_arg(a, 1);
+        return {Value::from_bool(f.good())};
+    });
+    ifn("append_file", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::ofstream f(str_arg(a, 0), std::ios::binary | std::ios::app);
+        if (!f) return {Value::from_bool(false)};
+        f << str_arg(a, 1);
+        return {Value::from_bool(f.good())};
+    });
+    ifn("lines", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::ifstream f(str_arg(a, 0));
+        if (!f) return {Value::nil()};
+        Value arr = Value::from_table();
+        auto* t = arr.as_table();
+        std::string line;
+        int64_t idx = 0;
+        while (std::getline(f, line))
+            t->set_index(idx++, Value::from_string(line));
+        return {arr};
+    });
+    ifn("size", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        auto sz = std::filesystem::file_size(str_arg(a, 0), ec);
+        if (ec) return {Value::nil()};
+        return {Value::from_int((int64_t)sz)};
+    });
+    ifn("exists", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        bool ok = std::filesystem::exists(str_arg(a, 0), ec);
+        return {Value::from_bool(!ec && ok)};
+    });
+    ifn("delete_file", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        bool ok = std::filesystem::remove(str_arg(a, 0), ec);
+        return {Value::from_bool(!ec && ok)};
+    });
+    ifn("rename", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        std::filesystem::rename(str_arg(a, 0), str_arg(a, 1), ec);
+        return {Value::from_bool(!ec)};
+    });
+    ifn("copy_file", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        bool ok = std::filesystem::copy_file(
+            str_arg(a, 0), str_arg(a, 1),
+            std::filesystem::copy_options::overwrite_existing, ec);
+        return {Value::from_bool(!ec && ok)};
+    });
+    ifn("read_line", [](std::vector<Value>) -> std::vector<Value> {
+        std::string line;
+        if (!std::getline(std::cin, line)) return {Value::nil()};
+        return {Value::from_string(line)};
+    });
+    ifn("print_err", [](std::vector<Value> a) -> std::vector<Value> {
+        for (auto& v : a) std::cerr << v.to_string();
+        std::cerr << '\n';
+        return {};
+    });
+
+    globals_["io"] = io_tbl;
+}
+
+// ===========================================================================
+// open_os — opt-in OS / path stdlib
+// ===========================================================================
+void VM::open_os() {
+    auto str_arg = [](const std::vector<Value>& a, size_t i) -> std::string {
+        if (i >= a.size()) return "";
+        return a[i].is_string() ? a[i].as_string() : a[i].to_string();
+    };
+
+    Value os_tbl = Value::from_table();
+    auto* ot = os_tbl.as_table();
+    auto ofn = [&](const std::string& key, NativeFunction::Fn fn) {
+        ot->set(key, Value::from_native("os." + key, std::move(fn)));
+    };
+
+    ofn("getcwd", [](std::vector<Value>) -> std::vector<Value> {
+        std::error_code ec;
+        auto p = std::filesystem::current_path(ec);
+        if (ec) return {Value::nil()};
+        return {Value::from_string(p.string())};
+    });
+    ofn("chdir", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        std::filesystem::current_path(str_arg(a, 0), ec);
+        return {Value::from_bool(!ec)};
+    });
+    ofn("mkdir", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        std::filesystem::create_directories(str_arg(a, 0), ec);
+        return {Value::from_bool(!ec)};
+    });
+    ofn("rmdir", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        std::filesystem::remove_all(str_arg(a, 0), ec);
+        return {Value::from_bool(!ec)};
+    });
+    ofn("listdir", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        std::filesystem::directory_iterator it(str_arg(a, 0), ec);
+        if (ec) return {Value::nil()};
+        Value arr = Value::from_table();
+        auto* t = arr.as_table();
+        int64_t idx = 0;
+        for (auto& entry : it)
+            t->set_index(idx++, Value::from_string(entry.path().filename().string()));
+        return {arr};
+    });
+    ofn("getenv", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        const char* v = std::getenv(str_arg(a, 0).c_str());
+        if (!v) return {Value::nil()};
+        return {Value::from_string(v)};
+    });
+    ofn("time", [](std::vector<Value>) -> std::vector<Value> {
+        using namespace std::chrono;
+        auto secs = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+        return {Value::from_int((int64_t)secs)};
+    });
+    ofn("clock", [](std::vector<Value>) -> std::vector<Value> {
+        using namespace std::chrono;
+        static const auto start = steady_clock::now();
+        double secs = duration<double>(steady_clock::now() - start).count();
+        return {Value::from_float(secs)};
+    });
+    ofn("platform", [](std::vector<Value>) -> std::vector<Value> {
+#if defined(_WIN32)
+        return {Value::from_string("windows")};
+#elif defined(__APPLE__)
+        return {Value::from_string("macos")};
+#elif defined(__linux__)
+        return {Value::from_string("linux")};
+#elif defined(__ANDROID__)
+        return {Value::from_string("android")};
+#else
+        return {Value::from_string("unknown")};
+#endif
+    });
+    ofn("exit", [](std::vector<Value> a) -> std::vector<Value> {
+        int code = (!a.empty() && a[0].is_int()) ? (int)a[0].as_int() : 0;
+        std::exit(code);
+    });
+
+    // ── os.path subtable ───────────────────────────────────────────────────
+    Value path_tbl = Value::from_table();
+    auto* pt = path_tbl.as_table();
+    auto pfn = [&](const std::string& key, NativeFunction::Fn fn) {
+        pt->set(key, Value::from_native("os.path." + key, std::move(fn)));
+    };
+
+    pfn("join", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty()) return {Value::from_string("")};
+        std::filesystem::path p(str_arg(a, 0));
+        for (size_t i = 1; i < a.size(); ++i)
+            p /= str_arg(a, i);
+        return {Value::from_string(p.string())};
+    });
+    pfn("dirname", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_string(
+            std::filesystem::path(str_arg(a, 0)).parent_path().string())};
+    });
+    pfn("basename", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_string(
+            std::filesystem::path(str_arg(a, 0)).filename().string())};
+    });
+    pfn("stem", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_string(
+            std::filesystem::path(str_arg(a, 0)).stem().string())};
+    });
+    pfn("ext", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        return {Value::from_string(
+            std::filesystem::path(str_arg(a, 0)).extension().string())};
+    });
+    pfn("abs", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        auto p = std::filesystem::absolute(str_arg(a, 0), ec);
+        if (ec) return {Value::nil()};
+        return {Value::from_string(p.string())};
+    });
+    pfn("exists", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        bool ok = std::filesystem::exists(str_arg(a, 0), ec);
+        return {Value::from_bool(!ec && ok)};
+    });
+    pfn("is_file", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        bool ok = std::filesystem::is_regular_file(str_arg(a, 0), ec);
+        return {Value::from_bool(!ec && ok)};
+    });
+    pfn("is_dir", [str_arg](std::vector<Value> a) -> std::vector<Value> {
+        std::error_code ec;
+        bool ok = std::filesystem::is_directory(str_arg(a, 0), ec);
+        return {Value::from_bool(!ec && ok)};
+    });
+
+    ot->set("path", path_tbl);
+    globals_["os"] = os_tbl;
 }
 
 // ===========================================================================
