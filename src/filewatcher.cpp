@@ -1,6 +1,8 @@
 #include "filewatcher.h"
 #include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <algorithm>
 #include <sys/stat.h>
 
 // ---------------------------------------------------------------------------
@@ -31,9 +33,12 @@ public:
 
     bool start(const std::string& dir, WatchCallback cb) override {
         cb_ = std::move(cb);
+        std::error_code ec;
+        std::string watch_dir = std::filesystem::canonical(dir, ec).string();
+        if (ec) watch_dir = dir;
 
         CFStringRef path_str = CFStringCreateWithCString(
-            kCFAllocatorDefault, dir.c_str(), kCFStringEncodingUTF8);
+            kCFAllocatorDefault, watch_dir.c_str(), kCFStringEncodingUTF8);
         CFArrayRef paths = CFArrayCreate(
             kCFAllocatorDefault, (const void**)&path_str, 1, &kCFTypeArrayCallBacks);
         CFRelease(path_str);
@@ -55,7 +60,14 @@ public:
 
         queue_ = dispatch_queue_create("zscript.fsevent", DISPATCH_QUEUE_SERIAL);
         FSEventStreamSetDispatchQueue(stream_, queue_);
-        FSEventStreamStart(stream_);
+        if (!FSEventStreamStart(stream_)) {
+            FSEventStreamInvalidate(stream_);
+            FSEventStreamRelease(stream_);
+            stream_ = nullptr;
+            dispatch_release(queue_);
+            queue_ = nullptr;
+            return false;
+        }
         running_ = true;
         return true;
     }
@@ -88,9 +100,12 @@ private:
         if (!self->running_) return;
         char** paths = static_cast<char**>(event_paths_void);
         for (size_t i = 0; i < num_events; ++i) {
+            FSEventStreamEventFlags f = flags[i];
+            if (f & kFSEventStreamEventFlagItemIsDir)
+                continue;
+
             FileChange fc;
             fc.path = paths[i];
-            FSEventStreamEventFlags f = flags[i];
             if (f & kFSEventStreamEventFlagItemRemoved)
                 fc.event = WatchEvent::Deleted;
             else if (f & kFSEventStreamEventFlagItemCreated)
@@ -356,6 +371,20 @@ std::unique_ptr<IWatcherBackend> make_watcher_backend() {
 
 namespace zscript {
 
+static int64_t file_mtime_ns(const struct stat& st) {
+#if defined(__APPLE__)
+    return (int64_t)st.st_mtimespec.tv_sec * 1000000000LL +
+           (int64_t)st.st_mtimespec.tv_nsec;
+#elif defined(_WIN32)
+    return (int64_t)st.st_mtime * 1000000000LL;
+#elif defined(__linux__)
+    return (int64_t)st.st_mtim.tv_sec * 1000000000LL +
+           (int64_t)st.st_mtim.tv_nsec;
+#else
+    return (int64_t)st.st_mtime * 1000000000LL;
+#endif
+}
+
 bool PollingBackend::start(const std::string& dir, WatchCallback cb) {
     dir_     = dir;
     cb_      = std::move(cb);
@@ -429,7 +458,7 @@ void PollingBackend::scan(const std::string& dir) {
             continue;
         }
 
-        int64_t mtime = (int64_t)st.st_mtime;
+        int64_t mtime = file_mtime_ns(st);
         seen[full] = mtime;
 
         std::lock_guard<std::mutex> lk(mu_);
@@ -467,21 +496,33 @@ FileWatcher::~FileWatcher() { stop(); }
 
 bool FileWatcher::watch(const std::string& dir, WatchCallback on_change) {
     user_cb_ = std::move(on_change);
-    backend_ = make_watcher_backend();
-
-    running_ = true;
-    debounce_thread_ = std::thread([this] { debounce_thread(); });
-
-    bool ok = backend_->start(dir, [this](const FileChange& fc) {
-        on_raw_event(fc);
-    });
-    if (!ok) {
-        running_ = false;
-        if (debounce_thread_.joinable()) debounce_thread_.join();
-        backend_.reset();
-        return false;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        pending_.clear();
+        last_fired_.clear();
     }
-    return true;
+
+    auto start_backend = [&](std::unique_ptr<IWatcherBackend> backend) {
+        backend_ = std::move(backend);
+        running_ = true;
+        debounce_thread_ = std::thread([this] { debounce_thread(); });
+        bool ok = backend_->start(dir, [this](const FileChange& fc) {
+            on_raw_event(fc);
+        });
+        if (!ok) {
+            running_ = false;
+            if (debounce_thread_.joinable()) debounce_thread_.join();
+            backend_.reset();
+        }
+        return ok;
+    };
+
+    if (start_backend(make_watcher_backend())) {
+        return true;
+    }
+
+    int poll_ms = std::max(10, std::min(debounce_ms_, 50));
+    return start_backend(std::make_unique<PollingBackend>(poll_ms));
 }
 
 void FileWatcher::stop() {
@@ -497,9 +538,14 @@ const char* FileWatcher::backend_name() const {
 }
 
 void FileWatcher::on_raw_event(const FileChange& change) {
-    auto deadline = std::chrono::steady_clock::now() +
-                    std::chrono::milliseconds(debounce_ms_);
+    auto now = std::chrono::steady_clock::now();
+    auto deadline = now + std::chrono::milliseconds(debounce_ms_);
     std::lock_guard<std::mutex> lk(mu_);
+    auto fired = last_fired_.find(change.path);
+    if (fired != last_fired_.end() &&
+        now - fired->second < std::chrono::milliseconds(debounce_ms_)) {
+        return;
+    }
     pending_[change.path] = {change, deadline};
 }
 
@@ -514,6 +560,7 @@ void FileWatcher::debounce_thread() {
             for (auto it = pending_.begin(); it != pending_.end(); ) {
                 if (it->second.deadline <= now) {
                     fire.push_back(it->second.change);
+                    last_fired_[it->first] = now;
                     it = pending_.erase(it);
                 } else {
                     ++it;

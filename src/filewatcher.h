@@ -84,6 +84,7 @@ private:
     };
     std::mutex                            mu_;
     std::unordered_map<std::string, Pending> pending_;  // path → latest event
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> last_fired_;
     WatchCallback                         user_cb_;
     int                                   debounce_ms_;
 
