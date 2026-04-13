@@ -5,11 +5,20 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      rng_seed:
+        description: "Catch2 RNG seed to pass to tests, e.g. 1150817212"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   build:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      ZSCRIPT_TEST_RNG_SEED: ${{ github.event_name == 'workflow_dispatch' && inputs.rng_seed || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -28,7 +37,7 @@ jobs:
           restore-keys: deps-${{ matrix.os }}-
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DZSCRIPT_TEST_RNG_SEED="${{ env.ZSCRIPT_TEST_RNG_SEED }}"
 
       - name: Build
         run: cmake --build build --config Release --parallel

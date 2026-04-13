@@ -50,66 +50,76 @@ target_link_libraries(zsc PRIVATE zscript_core)
 enable_testing()
 include(Catch)
 
+set(ZSCRIPT_TEST_RNG_SEED "" CACHE STRING "Catch2 random seed to pass to tests")
+
+function(zscript_discover_tests target)
+    if(ZSCRIPT_TEST_RNG_SEED)
+        catch_discover_tests(${target} EXTRA_ARGS --rng-seed ${ZSCRIPT_TEST_RNG_SEED})
+    else()
+        catch_discover_tests(${target})
+    endif()
+endfunction()
+
 add_executable(test_lexer tests/test_lexer.cpp)
 target_link_libraries(test_lexer PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_lexer)
+zscript_discover_tests(test_lexer)
 
 add_executable(test_parser tests/test_parser.cpp)
 target_link_libraries(test_parser PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_parser)
+zscript_discover_tests(test_parser)
 
 add_executable(test_vm tests/test_vm.cpp)
 target_link_libraries(test_vm PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_vm)
+zscript_discover_tests(test_vm)
 
 add_executable(test_closures tests/test_closures.cpp)
 target_link_libraries(test_closures PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_closures)
+zscript_discover_tests(test_closures)
 
 add_executable(test_control_flow tests/test_control_flow.cpp)
 target_link_libraries(test_control_flow PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_control_flow)
+zscript_discover_tests(test_control_flow)
 
 add_executable(test_collections tests/test_collections.cpp)
 target_link_libraries(test_collections PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_collections)
+zscript_discover_tests(test_collections)
 
 add_executable(test_classes tests/test_classes.cpp)
 target_link_libraries(test_classes PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_classes)
+zscript_discover_tests(test_classes)
 
 add_executable(test_functions tests/test_functions.cpp)
 target_link_libraries(test_functions PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_functions)
+zscript_discover_tests(test_functions)
 
 add_executable(test_operators tests/test_operators.cpp)
 target_link_libraries(test_operators PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_operators)
+zscript_discover_tests(test_operators)
 
 add_executable(test_error_handling tests/test_error_handling.cpp)
 target_link_libraries(test_error_handling PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_error_handling)
+zscript_discover_tests(test_error_handling)
 
 add_executable(test_stdlib tests/test_stdlib.cpp)
 target_link_libraries(test_stdlib PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_stdlib)
+zscript_discover_tests(test_stdlib)
 
 add_executable(test_gc_module tests/test_gc_module.cpp)
 target_link_libraries(test_gc_module PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_gc_module)
+zscript_discover_tests(test_gc_module)
 
 add_executable(test_hotpatch tests/test_hotpatch.cpp)
 target_link_libraries(test_hotpatch PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_hotpatch)
+zscript_discover_tests(test_hotpatch)
 
 add_executable(test_io_os tests/test_io_os.cpp)
 target_link_libraries(test_io_os PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_io_os)
+zscript_discover_tests(test_io_os)
 
 add_executable(test_delegates tests/test_delegates.cpp)
 target_link_libraries(test_delegates PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_delegates)
+zscript_discover_tests(test_delegates)
 
 add_executable(test_generics tests/test_generics.cpp)
 target_link_libraries(test_generics PRIVATE zscript_core Catch2::Catch2WithMain)
-catch_discover_tests(test_generics)
+zscript_discover_tests(test_generics)
