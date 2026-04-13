@@ -1,14 +1,28 @@
 // ---------------------------------------------------------------------------
 // ZScript libFuzzer harness — fuzz the lexer, parser, and compiler.
 //
-// Build (requires clang):
-//   cmake -B build-fuzz -DZSCRIPT_FUZZ=ON \
-//         -DCMAKE_CXX_COMPILER=clang++ \
+// Build — Linux (install LLVM clang, which includes libFuzzer):
+//   sudo apt-get install clang
+//   cmake -B build-fuzz -DZSCRIPT_FUZZ=ON -DCMAKE_CXX_COMPILER=clang++ \
 //         -DCMAKE_BUILD_TYPE=RelWithDebInfo
 //   cmake --build build-fuzz --target fuzz_lexer_parser
-//
-// Run:
 //   ./build-fuzz/fuzz_lexer_parser fuzz/corpus -max_len=4096 -timeout=5
+//
+// Build — macOS (Apple clang does NOT include libFuzzer; use LLVM via Homebrew):
+//   brew install llvm
+//   cmake -B build-fuzz -DZSCRIPT_FUZZ=ON \
+//         -DCMAKE_CXX_COMPILER=$(brew --prefix llvm)/bin/clang++ \
+//         -DCMAKE_BUILD_TYPE=RelWithDebInfo
+//   cmake --build build-fuzz --target fuzz_lexer_parser
+//   ./build-fuzz/fuzz_lexer_parser fuzz/corpus -max_len=4096 -timeout=5
+//
+// Build — Windows (MSVC is unaffected; this uses a separate build dir with
+//         LLVM clang. Install via 'winget install LLVM.LLVM'):
+//   cmake -B build-fuzz -DZSCRIPT_FUZZ=ON \
+//         -DCMAKE_CXX_COMPILER="C:/Program Files/LLVM/bin/clang++.exe" \
+//         -DCMAKE_BUILD_TYPE=RelWithDebInfo
+//   cmake --build build-fuzz --target fuzz_lexer_parser
+//   build-fuzz\RelWithDebInfo\fuzz_lexer_parser.exe fuzz\corpus -max_len=4096 -timeout=5
 //
 // The target feeds arbitrary bytes into Lexer → Parser → Compiler.
 // Any crash, ASAN finding, or unhandled exception is a bug.

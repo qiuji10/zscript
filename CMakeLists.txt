@@ -127,10 +127,17 @@ zscript_discover_tests(test_generics)
 # ---------------------------------------------------------------------------
 # Fuzzer (libFuzzer) — opt-in via -DZSCRIPT_FUZZ=ON, requires clang.
 # ---------------------------------------------------------------------------
-option(ZSCRIPT_FUZZ "Build libFuzzer targets (requires clang with -fsanitize=fuzzer)" OFF)
+# Fuzzer (libFuzzer) — opt-in via -DZSCRIPT_FUZZ=ON.
+# Requires clang on any platform: clang++ on Linux/macOS, or the LLVM clang++
+# that ships with Visual Studio / LLVM installer on Windows.
+option(ZSCRIPT_FUZZ "Build libFuzzer targets (requires clang -fsanitize=fuzzer)" OFF)
 if(ZSCRIPT_FUZZ)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        message(FATAL_ERROR "ZSCRIPT_FUZZ requires clang (CMAKE_CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID})")
+        message(FATAL_ERROR
+            "ZSCRIPT_FUZZ requires a Clang compiler.\n"
+            "  Linux/macOS : -DCMAKE_CXX_COMPILER=clang++\n"
+            "  Windows     : -DCMAKE_CXX_COMPILER=\"C:/Program Files/LLVM/bin/clang++.exe\"\n"
+            "  (got: ${CMAKE_CXX_COMPILER_ID})")
     endif()
     add_executable(fuzz_lexer_parser fuzz/fuzz_lexer_parser.cpp)
     target_link_libraries(fuzz_lexer_parser PRIVATE zscript_core)
