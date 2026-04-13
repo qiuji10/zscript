@@ -6,6 +6,7 @@ import {
   LanguageClientOptions,
   RevealOutputChannelOn,
   ServerOptions,
+  State,
   TransportKind,
   Trace,
 } from "vscode-languageclient/node";
@@ -13,7 +14,7 @@ import {
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 
-function resolveServerPath(): string {
+function resolveServerPath(context?: vscode.ExtensionContext): string {
   const config = vscode.workspace.getConfiguration("zscript");
   const configured: string = config.get("serverPath") ?? "";
 
@@ -37,6 +38,19 @@ function resolveServerPath(): string {
     );
   }
 
+  if (context) {
+    const extensionRoot = context.extensionPath;
+    const repoRoot = path.resolve(extensionRoot, "..");
+    candidates.push(
+      path.join(repoRoot, "build", "Debug",   "zsc.exe"),
+      path.join(repoRoot, "build", "Release", "zsc.exe"),
+      path.join(repoRoot, "build", "Debug",   "zsc"),
+      path.join(repoRoot, "build", "Release", "zsc"),
+      path.join(repoRoot, "build", "zsc.exe"),
+      path.join(repoRoot, "build", "zsc"),
+    );
+  }
+
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
@@ -56,10 +70,20 @@ function traceLevel(): Trace {
   }
 }
 
+function clientStateLabel(): string {
+  switch (client?.state) {
+    case State.Running: return "running";
+    case State.Starting: return "starting";
+    case State.Stopped: return "stopped";
+    default: return "not created";
+  }
+}
+
 async function startClient(context: vscode.ExtensionContext): Promise<void> {
-  const serverPath = resolveServerPath();
+  const serverPath = resolveServerPath(context);
 
   outputChannel ??= vscode.window.createOutputChannel("ZScript Language Server");
+  outputChannel.appendLine(`Starting ZScript language server: ${serverPath} lsp`);
 
   const serverOptions: ServerOptions = {
     command: serverPath,
@@ -125,7 +149,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand("zscript.showServerPath", () => {
       vscode.window.showInformationMessage(
-        `ZScript server path: ${resolveServerPath()}`
+        `ZScript server path: ${resolveServerPath(context)}`
       );
     })
   );
@@ -133,6 +157,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand("zscript.showOutput", () => {
       outputChannel?.show(true);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("zscript.showStatus", () => {
+      vscode.window.showInformationMessage(
+        `ZScript language server is ${clientStateLabel()}. Server path: ${resolveServerPath(context)}`
+      );
     })
   );
 
@@ -147,7 +179,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory(
       "zscript",
-      new ZScriptDebugAdapterFactory()
+      new ZScriptDebugAdapterFactory(context)
     )
   );
 }
@@ -180,9 +212,11 @@ class ZScriptDebugConfigProvider implements vscode.DebugConfigurationProvider {
 }
 
 class ZScriptDebugAdapterFactory implements vscode.DebugAdapterDescriptorFactory {
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
   createDebugAdapterDescriptor(
     _session: vscode.DebugSession
   ): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-    return new vscode.DebugAdapterExecutable(resolveServerPath(), ["dap"]);
+    return new vscode.DebugAdapterExecutable(resolveServerPath(this.context), ["dap"]);
   }
 }

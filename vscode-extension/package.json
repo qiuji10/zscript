@@ -6,6 +6,13 @@
   "publisher": "zscript",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages", "Debuggers"],
+  "activationEvents": [
+    "onLanguage:zscript",
+    "onCommand:zscript.showStatus",
+    "onCommand:zscript.showServerPath",
+    "onCommand:zscript.showOutput",
+    "onCommand:zscript.restartServer"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
@@ -35,6 +42,10 @@
       {
         "command": "zscript.showOutput",
         "title": "ZScript: Show Language Server Output"
+      },
+      {
+        "command": "zscript.showStatus",
+        "title": "ZScript: Show Language Server Status"
       }
     ],
     "debuggers": [
@@ -89,6 +100,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
+    "build:server": "cmake -S .. -B ../build && cmake --build ../build --target zsc",
+    "build": "npm run build:server && npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./"
   },
