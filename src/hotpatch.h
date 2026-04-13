@@ -3,7 +3,6 @@
 #include "module.h"
 #include "vm.h"
 #include <atomic>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -72,6 +71,12 @@ private:
     VM&             vm_;
     std::string     watch_dir_;
     FileWatcher     watcher_;
+
+    // Baseline mtime (nanoseconds since epoch) of every .zs file at enable()
+    // time.  Events whose file mtime has not advanced past this baseline are
+    // stale FSEvents deliveries for pre-hotpatch writes and are discarded.
+    std::mutex                           baseline_mu_;
+    std::unordered_map<std::string, int64_t> baseline_mtimes_;
 
     // Queue of paths that need recompilation (written by watcher thread)
     std::mutex              recompile_mu_;

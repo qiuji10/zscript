@@ -4,10 +4,12 @@
 #include "parser.h"
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <stdlib.h>
+#include <sys/stat.h>
 #if defined(_WIN32)
 #  include <windows.h>
 #  include <direct.h>
@@ -20,6 +22,26 @@ namespace zscript {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// Return the file's last-modification time in nanoseconds since the Unix epoch.
+// Returns -1 on error.
+static int64_t path_mtime_ns(const std::string& path) {
+#if defined(_WIN32)
+    struct _stat st{};
+    if (::_stat(path.c_str(), &st) != 0) return -1;
+    return (int64_t)st.st_mtime * 1000000000LL;
+#elif defined(__APPLE__)
+    struct stat st{};
+    if (::stat(path.c_str(), &st) != 0) return -1;
+    return (int64_t)st.st_mtimespec.tv_sec * 1000000000LL
+         + (int64_t)st.st_mtimespec.tv_nsec;
+#else
+    struct stat st{};
+    if (::stat(path.c_str(), &st) != 0) return -1;
+    return (int64_t)st.st_mtim.tv_sec * 1000000000LL
+         + (int64_t)st.st_mtim.tv_nsec;
+#endif
+}
 
 static std::string read_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -68,6 +90,24 @@ bool HotpatchManager::enable(const std::string& dir) {
     watch_dir_ = canonical(dir);
     enabled_   = true;
 
+    // Baseline scan: record the current mtime of every .zs file in the watched
+    // directory.  FSEvents (and some other backends) can deliver "late" events
+    // for writes that happened just before the stream was created.  We suppress
+    // those stale events in on_file_changed() by ignoring any event whose file
+    // mtime has not advanced past this baseline.
+    {
+        std::lock_guard<std::mutex> lk(baseline_mu_);
+        std::error_code ec;
+        for (auto& entry : std::filesystem::recursive_directory_iterator(watch_dir_, ec)) {
+            if (ec) break;
+            if (!entry.is_regular_file(ec) || ec) continue;
+            if (entry.path().extension() != ".zs") continue;
+            std::string cpath = canonical(entry.path().string());
+            int64_t mtime = path_mtime_ns(cpath);
+            if (mtime >= 0) baseline_mtimes_[cpath] = mtime;
+        }
+    }
+
     // Start background recompile thread
     recompile_thread_ = std::thread([this] {
         while (enabled_) {
@@ -111,6 +151,19 @@ void HotpatchManager::on_file_changed(const FileChange& fc) {
     if (fc.event == WatchEvent::Deleted) return;
     const std::string path = canonical(fc.path);
     if (path.size() < 3 || path.substr(path.size() - 3) != ".zs") return;
+
+    // Suppress stale events: FSEvents (and similar) can deliver events for
+    // writes that predated the stream's creation.  Skip if the file's mtime
+    // hasn't advanced past the baseline recorded at enable() time.
+    {
+        int64_t mtime = path_mtime_ns(path);
+        std::lock_guard<std::mutex> lk(baseline_mu_);
+        auto it = baseline_mtimes_.find(path);
+        int64_t baseline = (it != baseline_mtimes_.end()) ? it->second : 0;
+        if (mtime >= 0 && mtime <= baseline) return;  // stale — ignore
+        // Advance the baseline so the same mtime doesn't re-trigger later.
+        baseline_mtimes_[path] = (mtime >= 0) ? mtime : baseline + 1;
+    }
 
     std::lock_guard<std::mutex> lk(recompile_mu_);
     // Deduplicate: only enqueue if not already pending
