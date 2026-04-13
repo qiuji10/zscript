@@ -279,10 +279,11 @@ DeclPtr Parser::parse_class_decl(std::vector<Annotation> annots) {
             fn->is_static = is_static;
             node->members.push_back(std::move(fn));
         } else if (check(TokenKind::KwLet) || check(TokenKind::KwVar)) {
-            auto fd = std::unique_ptr<FieldDecl>(
-                static_cast<FieldDecl*>(parse_field_or_var_decl(std::move(member_annots), true).release()));
-            fd->is_static = is_static;
-            node->members.push_back(std::move(fd));
+            auto decl = parse_field_or_var_decl(std::move(member_annots), true);
+            if (auto* fd = dynamic_cast<FieldDecl*>(decl.get())) {
+                fd->is_static = is_static;
+            }
+            node->members.push_back(std::move(decl));
         } else if (check_ident("prop")) {
             node->members.push_back(parse_prop_decl(std::move(member_annots)));
         } else {
