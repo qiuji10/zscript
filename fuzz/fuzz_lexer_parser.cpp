@@ -53,8 +53,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         if (parser.has_errors()) return 0;
 
         // --- Compile ---
-        // Use None engine so neither @unity nor @unreal blocks are stripped.
-        Compiler compiler(EngineMode::None);
+        // Empty TagSet: all @tag {} blocks are stripped (compile-time dead code).
+        Compiler compiler;
         compiler.compile(prog, "<fuzz>");
         // Compiler errors are expected on malformed input; just ignore them.
     } catch (...) {
