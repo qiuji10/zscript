@@ -100,6 +100,13 @@ jobs:
       - name: Build fuzzer
         run: cmake --build build-fuzz --target fuzz_lexer_parser --parallel
 
+      - name: Add ASAN runtime to PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem 'C:\Program Files\LLVM' -Recurse -Filter 'clang_rt.asan_dynamic-x86_64.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($dll) { $dll.DirectoryName | Out-File $env:GITHUB_PATH -Append -Encoding utf8 }
+
       - name: Run fuzzer (30 s smoke run)
         run: >
           ${{ matrix.exe }} fuzz/corpus
