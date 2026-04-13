@@ -363,3 +363,33 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Decide: GC algorithm — mark-sweep (implemented)
 - [x] Decide: hotpatch granularity — file-level (implemented)
 - [x] Decide: bytecode portability — binary + magic header (implemented)
+
+### CI — Engine Integration (Self-hosted Runners)
+
+#### Strategy
+- Core C++ build + tests + fuzz remain on GitHub hosted runners — run on every push, unaffected by engine runner availability
+- Unity and Unreal tests run on self-hosted runners; jobs are skipped gracefully when the runner machine is offline — no PR block, no failure
+- Separate workflow files per concern: `core.yml` (hosted), `unity.yml` (self-hosted), `unreal.yml` (self-hosted)
+- Engine workflows trigger on: release tag push, manual `workflow_dispatch`, or PRs that touch plugin-related paths (`src/unity/**`, `src/unreal/**`, `unity/**`)
+
+#### Self-hosted runner machines
+- [ ] Windows runner — Unity + Unreal installed; labeled `[self-hosted, windows, unity, unreal]`
+- [ ] macOS runner — Unity installed; labeled `[self-hosted, macos, unity]`
+- [ ] Linux runner — Unity installed; labeled `[self-hosted, linux, unity]`
+- [ ] Runner agent configured as a system service so it auto-starts on machine boot; jobs are simply not picked up when the machine is off (GitHub queues them with no timeout if `continue-on-error: true` and `if: always()` guards are set appropriately)
+
+#### Skip-if-offline behaviour
+- [ ] Each engine workflow job sets `continue-on-error: true` — machine being offline does not fail the PR check or block merges
+- [ ] Job-level `if:` condition checks a repo variable `UNITY_RUNNER_ENABLED` / `UNREAL_RUNNER_ENABLED` (set to `true`/`false` in repo settings) — provides a manual kill switch without editing workflow files
+- [ ] Summary step at end of workflow posts a notice to the PR if engine jobs were skipped, so it is visible but not blocking
+
+#### Unity CI jobs (`.github/workflows/unity.yml`)
+- [ ] Windows: build Unity project containing ZScript plugin, run Unity Test Runner (EditMode + PlayMode tests)
+- [ ] macOS: same
+- [ ] Linux: same (headless `-batchmode -nographics`)
+- [ ] Unity license activation via headless CLI at job start using license file stored as GitHub Actions secret; deactivate at job end
+
+#### Unreal CI jobs (`.github/workflows/unreal.yml`)
+- [ ] Windows: build `ZScriptPlugin.uplugin` against target UE version using `RunUAT.bat BuildPlugin`; run any automated tests via Unreal Automation Tool
+- [ ] macOS / Linux: same using `RunUAT.sh` (Unreal installed on respective self-hosted runners)
+- [ ] Epic account EULA accepted once at install time on each runner machine; no per-job activation needed
