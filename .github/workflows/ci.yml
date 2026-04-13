@@ -54,23 +54,27 @@ jobs:
         include:
           - os: ubuntu-latest
             # apt clang is LLVM clang — libFuzzer included.
-            install: sudo apt-get install -y clang
+            install: sudo apt-get install -y clang ninja-build
             clang: clang++
+            generator: ""
             exe: ./build-fuzz/fuzz_lexer_parser
 
           - os: macos-latest
-            # Apple clang does NOT ship libFuzzer. Use LLVM via Homebrew.
-            # LLVM is pre-installed on GitHub-hosted macOS runners.
-            install: echo "LLVM pre-installed via Homebrew"
-            clang: /opt/homebrew/opt/llvm/bin/clang++
+            # Apple clang does NOT ship libFuzzer. Install LLVM via Homebrew and
+            # resolve the prefix at runtime so the path works on both Intel and ARM.
+            install: brew install llvm ninja
+            clang: "$(brew --prefix llvm)/bin/clang++"
+            generator: ""
             exe: ./build-fuzz/fuzz_lexer_parser
 
           - os: windows-latest
-            # LLVM is pre-installed on GitHub-hosted Windows runners.
+            # LLVM and Ninja are pre-installed on GitHub-hosted Windows runners.
+            # Must use -G Ninja — the VS generator ignores CMAKE_CXX_COMPILER.
             # The fuzz build uses clang; the normal 'build' job still uses MSVC.
-            install: echo "LLVM pre-installed"
+            install: echo "LLVM and Ninja pre-installed"
             clang: "C:/Program Files/LLVM/bin/clang++.exe"
-            exe: ./build-fuzz/RelWithDebInfo/fuzz_lexer_parser.exe
+            generator: "-G Ninja"
+            exe: ./build-fuzz/fuzz_lexer_parser.exe
 
     steps:
       - uses: actions/checkout@v5
@@ -88,6 +92,7 @@ jobs:
       - name: Configure
         run: >
           cmake -B build-fuzz
+          ${{ matrix.generator }}
           -DCMAKE_CXX_COMPILER="${{ matrix.clang }}"
           -DCMAKE_BUILD_TYPE=RelWithDebInfo
           -DZSCRIPT_FUZZ=ON
