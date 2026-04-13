@@ -93,6 +93,14 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Range type and range iteration (`0..10`, `0..<10`) — first-class range values via `NewRange`/`NewRangeExcl` opcodes; `TLen` and `GetIndex` handle them transparently; passable to functions
 - [x] Generics / type parameters — type params as leading locals; `T()`, `item is T`, `T == "int"` patterns; `IsInstanceDynamic` opcode for runtime `is T` checks
 
+### VM Extensions (required before engine plugin bindings)
+- [ ] `__index` metamethod — in `GetField` and `GetIndex` opcodes: when key is absent on a table, check for a `__index` callable on the table and invoke it with the key; return result; enables property-style access on C++ object proxy tables
+- [ ] `__newindex` metamethod — in `SetField` and `SetIndex` opcodes: before writing to a table, check for a `__newindex` callable; if present, invoke it with `(key, value)` instead of writing directly; enables write-back to C++ objects
+- [ ] `__call` metamethod — in `Call` opcode: if callee is a `Table` with a `__call` entry, dispatch through it; enables proxy tables to be called as constructors (`Vector3(1, 0, 0)`)
+- [ ] `__eq` metamethod — in `Value::operator==`: when comparing two tables, check for `__eq` callable and invoke it; enables two different proxy handles to the same underlying C++ object to compare equal
+- [ ] `__gc` finalizer hook on `ZTable` — add `std::function<void()> gc_hook` field to `ZTable`; call it from `~ZTable()` if set; required so C++ / C# object pool entries are released when a proxy table is garbage collected (without this every `GetComponent` / `FindObjectsWithType` leaks)
+- [ ] Coroutines — new `ZCoroutine` GC object + `Tag::Coroutine` in `Value`; `coroutine.create(fn)`, `coroutine.resume(co, ...)`, `coroutine.yield(...)` stdlib; `Yield` opcode suspends the current coroutine frame and returns control to the resumer; VM coroutine frame stack separate from call frame stack; required for Unity `StartCoroutine` / `yield WaitForSeconds` bridge
+
 ---
 
 ## Phase 3 — GC + Module System + C++ Binding API
@@ -164,10 +172,8 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 ### Unity Plugin
 
 #### VM-level prerequisites
-- [ ] `__index` metamethod support in VM — when a table lookup misses, call `table.__index(key)` if present; enables property-style access on proxy objects (`obj.position`, `obj.localScale`)
-- [ ] `__newindex` metamethod support in VM — when assigning to a missing key, call `table.__newindex(key, value)`; enables write-back to Unity objects (`obj.position = Vec3(0, 1, 0)`)
-- [ ] `__call` metamethod support in VM — lets a proxy table be called as a function; needed for struct constructors (`Vector3(1, 0, 0)`)
-- [ ] `vm.push_object_handle(id)` / `vm.get_object_handle(val)` — opaque integer handle system for passing Unity object references across the C boundary without GC interaction
+- [ ] All items in "VM Extensions" section of Phase 2 must be completed first (`__index`, `__newindex`, `__call`, `__eq`, `__gc` hook, coroutines)
+- [ ] `vm.push_object_handle(id)` / `vm.get_object_handle(val)` — opaque integer handle system for passing Unity object references across the C boundary without GC interaction; Unity object proxy is a `ZTable` with `__handle` int key + metamethods set + `gc_hook` wired to `pool.Release(id)`
 
 #### C API (`src/unity/zscript_c.h` + `src/unity/zscript_c.cpp`)
 - [ ] Opaque handle types: `typedef void* ZsVM; typedef void* ZsValue;` — safe across P/Invoke
@@ -278,6 +284,34 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [ ] `link.xml` rule: `<assembly fullname="ZScriptRuntime" preserve="all"/>` — prevents IL2CPP stripping of binding glue
 - [ ] `[Preserve]` attribute on all dispatch methods and generated adapter classes
 - [ ] AOT-compile test: build a minimal IL2CPP player and verify no `ExecutionEngineException` at startup
+
+### .NET / C# NuGet Package (`ZScript.Native`)
+
+#### Native builds
+- [ ] Reuse the same C API (`zscript_c.h`) and native lib CMake target from the Unity plugin — no duplicate C++ work
+- [ ] Build matrix outputs platform-specific binaries for NuGet `runtimes/` layout:
+  - `runtimes/win-x64/native/zscript.dll`
+  - `runtimes/linux-x64/native/libzscript.so`
+  - `runtimes/osx-x64/native/libzscript.dylib`
+  - `runtimes/osx-arm64/native/libzscript.dylib`
+- [ ] `.targets` file in the package that sets `NativeLibraryPath` so .NET runtime resolves the right binary automatically at runtime on all platforms
+
+#### C# wrapper assembly (`ZScript.dll`)
+- [ ] Reuse `ZsVM.cs` and `ZsValueHandle.cs` from Unity runtime layer — same `[DllImport]` declarations, same `SafeHandle` lifetime management
+- [ ] `ZScriptVM.cs` — plain C# class (no `MonoBehaviour`); wraps `ZsVM` handle; exposes `LoadFile(path)`, `LoadSource(name, src)`, `Call(name, args...)`, `AddTag(tag)`, `Poll()`, `Dispose()`
+- [ ] `ZScriptValue.cs` — strongly-typed wrapper around `ZsValue`; implicit conversions to/from `bool`, `long`, `double`, `string`
+- [ ] `IZScriptExport` interface + `[ZScriptExport]` attribute — same attribute works in both Unity and plain .NET projects; codegen tool detects the host and generates appropriate dispatch
+
+#### NuGet packaging
+- [ ] `ZScript.Native.csproj` — `<PackageId>ZScript.Native</PackageId>`; targets `netstandard2.0` for broadest compatibility (works in Unity, .NET 6+, .NET Framework 4.7.2+)
+- [ ] `ZScript.Native.nuspec` or MSBuild props — embeds native binaries under `runtimes/` and C# wrapper under `lib/netstandard2.0/`
+- [ ] Version tied to ZScript core version — single version number across C++ core, NuGet package, and Unity package
+- [ ] `dotnet pack` produces the `.nupkg`; CI uploads to NuGet.org on tagged release
+
+#### CI integration
+- [ ] CI `nuget-build` job: runs after the native build matrix; downloads per-platform binaries as artifacts, assembles `runtimes/` layout, runs `dotnet pack`
+- [ ] Smoke test job: `dotnet new console`, `dotnet add package ZScript.Native --source ./artifacts`, runs a minimal `.zs` script — verifies the package loads and executes on Linux, Windows, macOS
+- [ ] No Unity or Unreal install needed — entire NuGet CI path is plain .NET SDK only; stays well within the 10 GB GitHub Actions cache limit
 
 ---
 
