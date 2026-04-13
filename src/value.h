@@ -22,7 +22,9 @@ struct GcObject {
 };
 
 // ---------------------------------------------------------------------------
-// String — interned by the VM (Phase 3), plain heap string for now
+// String — interned by the VM.  Identical string values share one ZString
+// object; the VM's intern_table_ holds a weak_ptr so entries are evicted
+// once no live Value references them.
 // ---------------------------------------------------------------------------
 struct ZString : GcObject {
     std::string data;
@@ -122,9 +124,15 @@ struct Value {
     static Value from_bool(bool v)              { Value x; x.tag = Tag::Bool;  x.b = v; return x; }
     static Value from_int(int64_t v)            { Value x; x.tag = Tag::Int;   x.i = v; return x; }
     static Value from_float(double v)           { Value x; x.tag = Tag::Float; x.f = v; return x; }
-    static Value from_string(std::string s)     {
+    static Value from_string(std::string s) {
         Value x; x.tag = Tag::String;
         x.str_ptr = std::make_shared<ZString>(std::move(s));
+        return x;
+    }
+    // Used by VM::intern_string — wraps an already-created (or looked-up) ZString.
+    static Value from_zstring(std::shared_ptr<ZString> sp) {
+        Value x; x.tag = Tag::String;
+        x.str_ptr = std::move(sp);
         return x;
     }
     static Value from_table() {

@@ -166,6 +166,15 @@ private:
     void runtime_error(const std::string& msg);
     std::string format_trace() const;
 
+    // String interning — returns (or creates) the canonical Value for a string.
+    Value intern_string(std::string s);
+    // Walk all proto constant tables in a chunk and replace string Values with
+    // their interned counterparts so identical strings across protos share one object.
+    void  intern_chunk_strings(Chunk& chunk);
+
+    // Intern table: string data → weak_ptr so entries expire when unreferenced.
+    std::unordered_map<std::string, std::weak_ptr<ZString>> intern_table_;
+
     // Debugger hook state
     LineHook    line_hook_;
     std::string source_file_;      // set by execute(), used in line hook calls

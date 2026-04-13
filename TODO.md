@@ -62,7 +62,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Register-based interpreter loop
 - [x] Call frame stack
 - [x] Core type representation: `nil`, `bool`, `int`, `float`, `string`, `table`, `function`, `userdata`
-- [ ] String interning
+- [x] String interning
 - [x] Table (hash map) implementation
 - [x] Function objects + closures (upvalue capture)
 - [x] `vm.setEngine(Engine::Unreal | Engine::Unity)` — engine mode at init

@@ -1370,11 +1370,36 @@ std::string VM::format_trace() const {
 // ===========================================================================
 // Execute a compiled chunk
 // ===========================================================================
+// ===========================================================================
+// String interning
+// ===========================================================================
+Value VM::intern_string(std::string s) {
+    auto it = intern_table_.find(s);
+    if (it != intern_table_.end()) {
+        if (auto sp = it->second.lock())
+            return Value::from_zstring(std::move(sp));
+        // Weak reference expired — fall through to create a fresh ZString.
+    }
+    auto sp = std::make_shared<ZString>(s);
+    intern_table_[std::move(s)] = std::weak_ptr<ZString>(sp);
+    return Value::from_zstring(std::move(sp));
+}
+
+void VM::intern_chunk_strings(Chunk& chunk) {
+    for (auto& proto_ptr : chunk.all_protos) {
+        for (auto& v : proto_ptr->constants) {
+            if (v.is_string())
+                v = intern_string(v.as_string());
+        }
+    }
+}
+
 bool VM::execute(Chunk& chunk) {
     if (!chunk.main_proto) {
         last_error_ = {"empty chunk", ""};
         return false;
     }
+    intern_chunk_strings(chunk);
     source_file_    = chunk.filename;
     last_hook_line_ = 0;
     // Push main frame at base reg 0
@@ -2511,6 +2536,7 @@ bool VM::execute_module(Chunk& chunk, const std::string& mod_name) {
         last_error_ = {"module '" + mod_name + "' has no compiled code", ""};
         return false;
     }
+    intern_chunk_strings(chunk);
     auto saved = globals_;
     globals_.clear();
     for (auto& [k, v] : saved) globals_[k] = v;
