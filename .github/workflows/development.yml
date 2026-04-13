@@ -34,7 +34,10 @@ jobs:
             seed="${ZSCRIPT_TEST_RNG_SEED}"
             source="workflow input"
           else
-            seed="${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+            seed="$(( (GITHUB_RUN_ID + GITHUB_RUN_ATTEMPT) % 4294967295 ))"
+            if [ "${seed}" -eq 0 ]; then
+              seed=1
+            fi
             source="generated from run context"
           fi
           echo "Resolved Catch2 RNG seed: ${seed} (${source})"
