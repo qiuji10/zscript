@@ -184,7 +184,11 @@ bool VM::load_file(const std::string& path) {
     Compiler compiler(engine_);
     auto chunk = compiler.compile(prog, path);
     if (compiler.has_errors()) {
-        last_error_ = {compiler.errors()[0].message, ""}; return false;
+        for (auto& e : compiler.errors())
+            if (e.severity == CompileError::Severity::Error) {
+                last_error_ = {e.message, ""}; break;
+            }
+        return false;
     }
     return execute(*chunk);
 }

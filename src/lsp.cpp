@@ -637,9 +637,9 @@ Json LspServer::compute_diagnostics(const std::string& uri, const std::string& t
 
     Compiler comp(EngineMode::None);
     comp.compile(prog, uri);
-    if (comp.has_errors()) {
-        for (auto& e : comp.errors())
-            add(e.loc.line, e.loc.column, e.loc.column + 1, 1, e.message);
+    for (auto& e : comp.errors()) {
+        int sev = (e.severity == CompileError::Severity::Warning) ? 2 : 1;
+        add(e.loc.line, e.loc.column, e.loc.column + 1, sev, e.message);
     }
 
     // Semantic pass: warn about undefined identifier references

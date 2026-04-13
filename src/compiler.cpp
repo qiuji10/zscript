@@ -169,7 +169,11 @@ int Compiler::current_pc() const {
 // Error
 // ===========================================================================
 void Compiler::error(const SourceLoc& loc, const std::string& msg) {
-    errors_.push_back({loc, msg});
+    errors_.push_back({loc, msg, CompileError::Severity::Error});
+}
+
+void Compiler::warn(const SourceLoc& loc, const std::string& msg) {
+    errors_.push_back({loc, msg, CompileError::Severity::Warning});
 }
 
 // ===========================================================================
@@ -230,6 +234,9 @@ void Compiler::compile_top_level(const Program& prog) {
 // Compile a function declaration → Closure stored in dest_reg
 // ===========================================================================
 void Compiler::compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line) {
+    if (!fn.return_type)
+        warn(fn.loc, "function '" + fn.name + "' is missing an explicit return type annotation");
+
     Proto* fn_proto = chunk_->new_proto(fn.name);
     // Type params come first, then regular params
     fn_proto->num_params = (uint8_t)(fn.type_params.size() + fn.params.size());
@@ -546,6 +553,9 @@ void Compiler::compile_enum_decl(const EnumDecl& e, uint32_t line) {
 // ===========================================================================
 void Compiler::compile_method(const FnDecl& fn, const std::string& class_name,
                               const std::string& base_class, uint8_t tbl_reg) {
+    if (!fn.return_type)
+        warn(fn.loc, "method '" + class_name + "." + fn.name + "' is missing an explicit return type annotation");
+
     Proto* fn_proto = chunk_->new_proto(class_name + "." + fn.name);
     fn_proto->num_params = (uint8_t)(fn.params.size() + 1); // +1 for self
     // self is param 0; user params follow

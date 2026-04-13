@@ -10,8 +10,10 @@
 namespace zscript {
 
 struct CompileError {
+    enum class Severity { Error, Warning };
     SourceLoc   loc;
     std::string message;
+    Severity    severity = Severity::Error;
 };
 
 // ---------------------------------------------------------------------------
@@ -25,7 +27,11 @@ public:
     std::unique_ptr<Chunk> compile(const Program& prog, const std::string& filename);
 
     const std::vector<CompileError>& errors() const { return errors_; }
-    bool has_errors() const { return !errors_.empty(); }
+    bool has_errors() const {
+        for (auto& e : errors_)
+            if (e.severity == CompileError::Severity::Error) return true;
+        return false;
+    }
 
 private:
     // =========================================================================
@@ -176,6 +182,7 @@ private:
     // Error handling
     // =========================================================================
     void error(const SourceLoc& loc, const std::string& msg);
+    void warn (const SourceLoc& loc, const std::string& msg);
 
     // =========================================================================
     // State

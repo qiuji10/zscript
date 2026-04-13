@@ -41,9 +41,12 @@ static void print_errors(const std::string& path,
 
 static void print_errors(const std::string& path,
                          const std::vector<CompileError>& errs) {
-    for (auto& e : errs)
+    for (auto& e : errs) {
+        const char* label = (e.severity == CompileError::Severity::Warning)
+                            ? "warning" : "error";
         std::cerr << path << ":" << e.loc.line << ":" << e.loc.column
-                  << ": error: " << e.message << "\n";
+                  << ": " << label << ": " << e.message << "\n";
+    }
 }
 
 // Compile a .zs source file → Chunk. Returns nullptr on error.
@@ -75,8 +78,9 @@ static std::unique_ptr<Chunk> compile_source(const std::string& path,
 
     Compiler compiler(engine);
     auto chunk = compiler.compile(prog, path);
-    if (compiler.has_errors()) {
+    if (!compiler.errors().empty())
         print_errors(path, compiler.errors());
+    if (compiler.has_errors()) {
         had_error = true;
         return nullptr;
     }

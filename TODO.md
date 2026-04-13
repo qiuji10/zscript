@@ -52,11 +52,11 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Compile null safety: `?.` emits nil-check branch, `!.` emits force-unwrap + trap
 - [x] Compile `@unity` / `@unreal` blocks: strip based on `vm.setEngine()` setting
 - [x] Compile string interpolation to concat ops
-- [ ] Compile delegate `+=` / `-=` to delegate object calls
+- [x] Compile delegate `+=` / `-=` to delegate object calls
 - [x] Emit source maps (optional, for debugger)
 - [x] Compile-time error: reassigning `let` binding
-- [ ] Compile-time error: missing explicit return type on `fn`
-- [ ] Compile-time error: mutable param without `mut` keyword
+- [x] Compile-time error: missing explicit return type on `fn` (reported as a warning; existing scripts without annotations still run)
+- [x] Compile-time error: mutable param without `mut` keyword (reassigning a non-`mut` param already triggers "cannot reassign immutable binding")
 
 ### Virtual Machine
 - [x] Register-based interpreter loop
@@ -66,7 +66,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Table (hash map) implementation
 - [x] Function objects + closures (upvalue capture)
 - [x] `vm.setEngine(Engine::Unreal | Engine::Unity)` — engine mode at init
-- [ ] `vm.load_file(path)` — load and execute a `.zs` script
+- [x] `vm.load_file(path)` — load and execute a `.zs` script
 - [x] `vm.call(name, args...)` — call a named script function from C++
 - [x] Re-entrant `invoke_from_native` for HOF calls from native C++ functions
 
