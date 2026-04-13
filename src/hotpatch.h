@@ -68,6 +68,11 @@ private:
     // Map a filesystem path to a module name (strips dir prefix and .zs suffix).
     std::string path_to_module_name(const std::string& path) const;
 
+    // Fallback polling scan: stat every file in baseline_mtimes_ and enqueue
+    // any whose mtime has advanced.  Called from the recompile thread every
+    // ~500 ms so hotpatch works even when the OS event backend is slow.
+    void scan_for_changes();
+
     VM&             vm_;
     std::string     watch_dir_;
     FileWatcher     watcher_;

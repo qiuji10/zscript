@@ -116,8 +116,12 @@ bool HotpatchManager::enable(const std::string& dir) {
         }
     }
 
-    // Start background recompile thread
+    // Start background recompile thread.
+    // Every 10 ms it drains FSEvents-triggered jobs.  Every 50 ticks (~500 ms)
+    // it also runs a stat-based scan over all watched files as a fallback for
+    // when the OS event backend is slow (common on loaded CI runners).
     recompile_thread_ = std::thread([this] {
+        int scan_tick = 0;
         while (enabled_) {
             std::vector<std::string> batch;
             {
@@ -126,6 +130,10 @@ bool HotpatchManager::enable(const std::string& dir) {
             }
             for (auto& p : batch) {
                 recompile(p);
+            }
+            if (++scan_tick >= 50) {
+                scan_tick = 0;
+                scan_for_changes();
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -289,6 +297,34 @@ int HotpatchManager::apply_pending() {
         ++reload_count_;
     }
     return count;
+}
+
+// ---------------------------------------------------------------------------
+// scan_for_changes — polling fallback (recompile thread, ~500 ms cadence)
+// ---------------------------------------------------------------------------
+
+void HotpatchManager::scan_for_changes() {
+    // Collect paths whose mtime has advanced since the last time we saw them.
+    // Done under baseline_mu_ so on_file_changed() can't race the baseline update.
+    std::vector<std::string> changed;
+    {
+        std::lock_guard<std::mutex> lk(baseline_mu_);
+        for (auto& [path, baseline] : baseline_mtimes_) {
+            int64_t mtime = path_mtime_ns(path);
+            if (mtime > baseline) {
+                baseline = mtime;
+                changed.push_back(path);
+            }
+        }
+    }
+    if (changed.empty()) return;
+    std::lock_guard<std::mutex> lk(recompile_mu_);
+    for (auto& path : changed) {
+        if (std::find(recompile_queue_.begin(), recompile_queue_.end(), path)
+                == recompile_queue_.end()) {
+            recompile_queue_.push_back(path);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
