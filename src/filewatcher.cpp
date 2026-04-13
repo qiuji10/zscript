@@ -521,7 +521,7 @@ bool FileWatcher::watch(const std::string& dir, WatchCallback on_change) {
         return true;
     }
 
-    int poll_ms = std::max(10, std::min(debounce_ms_, 50));
+    int poll_ms = (std::max)(10, (std::min)(debounce_ms_, 50));
     return start_backend(std::make_unique<PollingBackend>(poll_ms));
 }
 

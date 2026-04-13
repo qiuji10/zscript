@@ -48,7 +48,34 @@ struct ChangeLog {
         std::lock_guard<std::mutex> lk(mu);
         return events.size();
     }
+    size_t count_matching(const std::function<bool(const FileChange&)>& pred) {
+        std::lock_guard<std::mutex> lk(mu);
+        size_t n = 0;
+        for (const auto& fc : events) {
+            if (pred(fc)) ++n;
+        }
+        return n;
+    }
+    bool any_matching(const std::function<bool(const FileChange&)>& pred) {
+        return count_matching(pred) > 0;
+    }
+    std::vector<FileChange> snapshot() {
+        std::lock_guard<std::mutex> lk(mu);
+        return events;
+    }
 };
+
+static bool wait_until(const std::function<bool()>& pred,
+                       int timeout_ms = 1000,
+                       int poll_ms = 10) {
+    auto deadline = std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (pred()) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(poll_ms));
+    }
+    return pred();
+}
 
 // ===========================================================================
 // FileWatcher tests
@@ -106,6 +133,26 @@ TEST_CASE("FileWatcher detects file modification", "[filewatcher]") {
     rm_rf(dir);
 }
 
+TEST_CASE("FileWatcher reports an active backend after watch()", "[filewatcher]") {
+    std::string dir = tmp_dir() + "/fw_backend_name";
+    mkdir_p(dir);
+    write_file(dir + "/script.zs", "var x = 1");
+
+    FileWatcher fw(50);
+    bool ok = fw.watch(dir, [&](const FileChange&) {});
+    REQUIRE(ok);
+
+    std::string backend = fw.backend_name();
+    CHECK(backend != "none");
+    CHECK((backend == "FSEvents" ||
+           backend == "inotify" ||
+           backend == "ReadDirectoryChangesW" ||
+           backend == "polling"));
+
+    fw.stop();
+    rm_rf(dir);
+}
+
 TEST_CASE("FileWatcher debounce collapses rapid writes", "[filewatcher]") {
     std::string dir = tmp_dir() + "/fw_debounce";
     mkdir_p(dir);
@@ -126,6 +173,120 @@ TEST_CASE("FileWatcher debounce collapses rapid writes", "[filewatcher]") {
 
     CHECK(cb_count.load() >= 1);
     CHECK(cb_count.load() <= 2);  // debounce collapsed rapid writes
+    rm_rf(dir);
+}
+
+TEST_CASE("FileWatcher debounce preserves separate write bursts", "[filewatcher]") {
+    std::string dir = tmp_dir() + "/fw_two_bursts";
+    mkdir_p(dir);
+    std::string file = dir + "/script.zs";
+    write_file(file, "var x = 0");
+
+    std::atomic<int> cb_count{0};
+    FileWatcher fw(120);
+    bool ok = fw.watch(dir, [&](const FileChange& fc) {
+        if (fs::path(fc.path).filename() == "script.zs") ++cb_count;
+    });
+    REQUIRE(ok);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    write_file(file, "var x = 1");
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    write_file(file, "var x = 2");
+    std::this_thread::sleep_for(std::chrono::milliseconds(320));
+
+    write_file(file, "var x = 3");
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    write_file(file, "var x = 4");
+
+    CHECK(wait_until([&] { return cb_count.load() >= 2; }, 1000));
+    fw.stop();
+
+    CHECK(cb_count.load() >= 2);
+    rm_rf(dir);
+}
+
+TEST_CASE("FileWatcher rapid writes surface file events, not directory noise", "[filewatcher]") {
+    std::string dir = tmp_dir() + "/fw_paths";
+    mkdir_p(dir);
+    std::string file = dir + "/script.zs";
+    write_file(file, "var x = 0");
+
+    ChangeLog log;
+    FileWatcher fw(150);
+    bool ok = fw.watch(dir, [&](const FileChange& fc) { log.push(fc); });
+    REQUIRE(ok);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    for (int i = 1; i <= 5; ++i) {
+        write_file(file, "var x = " + std::to_string(i));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    CHECK(wait_until([&] { return log.count() >= 1; }, 1000));
+    fw.stop();
+
+    auto events = log.snapshot();
+    REQUIRE(!events.empty());
+    for (const auto& fc : events) {
+        CHECK(fs::path(fc.path).filename() == "script.zs");
+    }
+    rm_rf(dir);
+}
+
+TEST_CASE("PollingBackend detects create and delete events", "[filewatcher]") {
+    std::string dir = tmp_dir() + "/fw_poll_create_delete";
+    mkdir_p(dir);
+    std::string file = dir + "/created_then_deleted.zs";
+
+    ChangeLog log;
+    PollingBackend pb(25);
+    bool ok = pb.start(dir, [&](const FileChange& fc) { log.push(fc); });
+    REQUIRE(ok);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    write_file(file, "var x = 1");
+    CHECK(wait_until([&] {
+        return log.any_matching([&](const FileChange& fc) {
+            return fs::path(fc.path).filename() == "created_then_deleted.zs" &&
+                   fc.event == WatchEvent::Created;
+        });
+    }, 1000));
+
+    rm_rf(file);
+    CHECK(wait_until([&] {
+        return log.any_matching([&](const FileChange& fc) {
+            return fs::path(fc.path).filename() == "created_then_deleted.zs" &&
+                   fc.event == WatchEvent::Deleted;
+        });
+    }, 1000));
+
+    pb.stop();
+    rm_rf(dir);
+}
+
+TEST_CASE("PollingBackend detects nested file creation", "[filewatcher]") {
+    std::string dir = tmp_dir() + "/fw_poll_nested";
+    std::string subdir = dir + "/nested";
+    mkdir_p(subdir);
+    std::string file = subdir + "/inner.zs";
+
+    ChangeLog log;
+    PollingBackend pb(25);
+    bool ok = pb.start(dir, [&](const FileChange& fc) { log.push(fc); });
+    REQUIRE(ok);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    write_file(file, "var x = 1");
+
+    CHECK(wait_until([&] {
+        return log.any_matching([&](const FileChange& fc) {
+            return fs::path(fc.path).filename() == "inner.zs" &&
+                   fc.event == WatchEvent::Created;
+        });
+    }, 1000));
+
+    pb.stop();
     rm_rf(dir);
 }
 
