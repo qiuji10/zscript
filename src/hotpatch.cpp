@@ -29,6 +29,20 @@ static std::string read_file(const std::string& path) {
     return ss.str();
 }
 
+static std::string read_stable_file(const std::string& path) {
+    std::string previous;
+    std::string current;
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        current = read_file(path);
+        if (!current.empty() && current == previous) {
+            return current;
+        }
+        previous = current;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return current;
+}
+
 // ---------------------------------------------------------------------------
 // HotpatchManager
 // ---------------------------------------------------------------------------
@@ -111,7 +125,7 @@ void HotpatchManager::on_file_changed(const FileChange& fc) {
 // ---------------------------------------------------------------------------
 
 void HotpatchManager::recompile(const std::string& path) {
-    std::string source = read_file(path);
+    std::string source = read_stable_file(path);
     if (source.empty()) return;
 
     std::string mod_name = path_to_module_name(path);
@@ -148,6 +162,7 @@ void HotpatchManager::recompile(const std::string& path) {
     new_mod->filepath = path;
     new_mod->state    = Module::State::Loaded;
     new_mod->chunk    = std::move(chunk);
+    new_mod->exports  = existing->exports;
     // version counter: existing version + 1
     new_mod->version  = existing->version + 1;
 

@@ -89,8 +89,14 @@ bool VM::execute_module(Module& mod, std::string& error_msg) {
     // Save current globals, run module with a fresh namespace, then collect exports.
     auto saved_globals = globals_;
     globals_.clear();
-    // Give the module access to stdlib (already registered in saved_globals)
-    for (auto& [k, v] : saved_globals) globals_[k] = v;
+    // Give the module access to the ambient globals, but exclude the module's
+    // own previous exports so a hot reload redefines them from source instead
+    // of inheriting stale values from the last version.
+    for (auto& [k, v] : saved_globals) {
+        if (mod.exports.find(k) == mod.exports.end()) {
+            globals_[k] = v;
+        }
+    }
 
     frames_.clear();
     frames_.push_back({mod.chunk->main_proto, 0, 0});
@@ -105,7 +111,8 @@ bool VM::execute_module(Module& mod, std::string& error_msg) {
 
     // Collect exports — everything the module defined that wasn't in stdlib
     for (auto& [k, v] : globals_) {
-        if (saved_globals.find(k) == saved_globals.end()) {
+        if (saved_globals.find(k) == saved_globals.end() ||
+            mod.exports.find(k) != mod.exports.end()) {
             mod.exports[k] = v;
         }
     }
