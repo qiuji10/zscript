@@ -9,12 +9,12 @@
 #include <iostream>
 #include <sstream>
 #include <stdlib.h>
-#include <sys/stat.h>
 #if defined(_WIN32)
 #  include <windows.h>
 #  include <direct.h>
 #else
 #  include <limits.h>
+#  include <sys/stat.h>
 #endif
 
 namespace zscript {
@@ -27,9 +27,17 @@ namespace zscript {
 // Returns -1 on error.
 static int64_t path_mtime_ns(const std::string& path) {
 #if defined(_WIN32)
-    struct _stat st{};
-    if (::_stat(path.c_str(), &st) != 0) return -1;
-    return (int64_t)st.st_mtime * 1000000000LL;
+    // _stat() has 1-second resolution on Windows — use GetFileAttributesExA
+    // instead to get FILETIME (100-ns resolution) so writes 100 ms apart are
+    // distinguishable.  FILETIME epoch is 1601-01-01; convert to Unix epoch by
+    // subtracting 116444736000000000 × 100 ns intervals.
+    WIN32_FILE_ATTRIBUTE_DATA attr{};
+    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &attr)) return -1;
+    ULARGE_INTEGER ft;
+    ft.LowPart  = attr.ftLastWriteTime.dwLowDateTime;
+    ft.HighPart = attr.ftLastWriteTime.dwHighDateTime;
+    // Convert 100-ns FILETIME intervals to nanoseconds, shifting to Unix epoch.
+    return (int64_t)((ft.QuadPart - 116444736000000000ULL) * 100LL);
 #elif defined(__APPLE__)
     struct stat st{};
     if (::stat(path.c_str(), &st) != 0) return -1;
