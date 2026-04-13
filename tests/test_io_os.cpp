@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include "lexer.h"
@@ -7,6 +8,14 @@
 #include "vm.h"
 using namespace zscript;
 namespace fs = std::filesystem;
+
+// Convert a native path to forward-slash form for embedding in ZScript source.
+// On Windows, backslashes would be treated as escape sequences by the lexer.
+static std::string zpath(const std::string& p) {
+    std::string r = p;
+    for (char& c : r) if (c == '\\') c = '/';
+    return r;
+}
 
 struct Ctx {
     VM vm;
@@ -45,7 +54,7 @@ struct TmpDir {
 
 TEST_CASE("io.write_file returns true on success", "[io]") {
     TmpDir d;
-    std::string f = d.file("hello.txt");
+    std::string f = zpath(d.file("hello.txt"));
     Ctx c;
     bool ok = c.run("var r = io.write_file(\"" + f + "\", \"hello\")");
     REQUIRE(ok);
@@ -57,7 +66,7 @@ TEST_CASE("io.read_file returns written content", "[io]") {
     std::string f = d.file("data.txt");
     { std::ofstream of(f); of << "ZScript"; }
     Ctx c;
-    REQUIRE(c.run("var r = io.read_file(\"" + f + "\")"));
+    REQUIRE(c.run("var r = io.read_file(\"" + zpath(f) + "\")"));
     CHECK(c.g("r").as_string() == "ZScript");
 }
 
@@ -76,7 +85,7 @@ TEST_CASE("io.append_file appends to existing file", "[io]") {
     std::string f = d.file("append.txt");
     { std::ofstream of(f); of << "Hello"; }
     Ctx c;
-    REQUIRE(c.run("io.append_file(\"" + f + "\", \" World\")"));
+    REQUIRE(c.run("io.append_file(\"" + zpath(f) + "\", \" World\")"));
     std::ifstream in(f);
     std::string content((std::istreambuf_iterator<char>(in)), {});
     CHECK(content == "Hello World");
@@ -91,7 +100,7 @@ TEST_CASE("io.lines returns array of strings", "[io]") {
     std::string f = d.file("lines.txt");
     { std::ofstream of(f); of << "one\ntwo\nthree"; }
     Ctx c;
-    REQUIRE(c.run("var arr = io.lines(\"" + f + "\")"));
+    REQUIRE(c.run("var arr = io.lines(\"" + zpath(f) + "\")"));
     auto* t = c.g("arr").as_table();
     REQUIRE(t != nullptr);
     CHECK(t->get_index(0).as_string() == "one");
@@ -114,7 +123,7 @@ TEST_CASE("io.exists returns true for existing file", "[io]") {
     std::string f = d.file("ex.txt");
     { std::ofstream of(f); of << "x"; }
     Ctx c;
-    REQUIRE(c.run("var r = io.exists(\"" + f + "\")"));
+    REQUIRE(c.run("var r = io.exists(\"" + zpath(f) + "\")"));
     CHECK(c.g("r").as_bool() == true);
 }
 
@@ -129,7 +138,7 @@ TEST_CASE("io.size returns byte count", "[io]") {
     std::string f = d.file("size.txt");
     { std::ofstream of(f); of << "12345"; }
     Ctx c;
-    REQUIRE(c.run("var r = io.size(\"" + f + "\")"));
+    REQUIRE(c.run("var r = io.size(\"" + zpath(f) + "\")"));
     CHECK(c.g("r").as_int() == 5);
 }
 
@@ -138,7 +147,7 @@ TEST_CASE("io.delete_file removes file", "[io]") {
     std::string f = d.file("del.txt");
     { std::ofstream of(f); of << "bye"; }
     Ctx c;
-    REQUIRE(c.run("var r = io.delete_file(\"" + f + "\")"));
+    REQUIRE(c.run("var r = io.delete_file(\"" + zpath(f) + "\")"));
     CHECK(c.g("r").as_bool() == true);
     CHECK(!fs::exists(f));
 }
@@ -153,7 +162,7 @@ TEST_CASE("io.rename moves a file", "[io]") {
     std::string dst = d.file("dst.txt");
     { std::ofstream of(src); of << "data"; }
     Ctx c;
-    REQUIRE(c.run("var r = io.rename(\"" + src + "\", \"" + dst + "\")"));
+    REQUIRE(c.run("var r = io.rename(\"" + zpath(src) + "\", \"" + zpath(dst) + "\")"));
     CHECK(c.g("r").as_bool() == true);
     CHECK(!fs::exists(src));
     CHECK(fs::exists(dst));
@@ -165,7 +174,7 @@ TEST_CASE("io.copy_file duplicates a file", "[io]") {
     std::string dst = d.file("copy.txt");
     { std::ofstream of(src); of << "content"; }
     Ctx c;
-    REQUIRE(c.run("var r = io.copy_file(\"" + src + "\", \"" + dst + "\")"));
+    REQUIRE(c.run("var r = io.copy_file(\"" + zpath(src) + "\", \"" + zpath(dst) + "\")"));
     CHECK(c.g("r").as_bool() == true);
     CHECK(fs::exists(src));
     CHECK(fs::exists(dst));
@@ -188,7 +197,7 @@ TEST_CASE("os.mkdir creates directory", "[os]") {
     TmpDir d;
     std::string sub = d.file("a/b/c");
     Ctx c;
-    REQUIRE(c.run("var r = os.mkdir(\"" + sub + "\")"));
+    REQUIRE(c.run("var r = os.mkdir(\"" + zpath(sub) + "\")"));
     CHECK(c.g("r").as_bool() == true);
     CHECK(fs::is_directory(sub));
 }
@@ -198,7 +207,7 @@ TEST_CASE("os.rmdir removes directory tree", "[os]") {
     std::string sub = d.file("tree");
     fs::create_directories(sub + "/x");
     Ctx c;
-    REQUIRE(c.run("var r = os.rmdir(\"" + sub + "\")"));
+    REQUIRE(c.run("var r = os.rmdir(\"" + zpath(sub) + "\")"));
     CHECK(c.g("r").as_bool() == true);
     CHECK(!fs::exists(sub));
 }
@@ -208,7 +217,7 @@ TEST_CASE("os.listdir returns filenames", "[os]") {
     { std::ofstream of(d.file("alpha.txt")); of << "a"; }
     { std::ofstream of(d.file("beta.txt"));  of << "b"; }
     Ctx c;
-    REQUIRE(c.run("var arr = os.listdir(\"" + d.str() + "\")"));
+    REQUIRE(c.run("var arr = os.listdir(\"" + zpath(d.str()) + "\")"));
     auto* t = c.g("arr").as_table();
     REQUIRE(t != nullptr);
     // two entries; sort-order not guaranteed, so just check count
@@ -302,7 +311,7 @@ TEST_CASE("os.path.join concatenates segments", "[os][path]") {
 TEST_CASE("os.path.is_dir true for existing directory", "[os][path]") {
     TmpDir d;
     Ctx c;
-    REQUIRE(c.run("var r = os.path.is_dir(\"" + d.str() + "\")"));
+    REQUIRE(c.run("var r = os.path.is_dir(\"" + zpath(d.str()) + "\")"));
     CHECK(c.g("r").as_bool() == true);
 }
 
@@ -311,7 +320,7 @@ TEST_CASE("os.path.is_file true for regular file", "[os][path]") {
     std::string f = d.file("f.txt");
     { std::ofstream of(f); of << "x"; }
     Ctx c;
-    REQUIRE(c.run("var r = os.path.is_file(\"" + f + "\")"));
+    REQUIRE(c.run("var r = os.path.is_file(\"" + zpath(f) + "\")"));
     CHECK(c.g("r").as_bool() == true);
 }
 

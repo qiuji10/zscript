@@ -149,10 +149,13 @@ public:
     // Bind a constructor taking Args...
     template<typename... Args>
     ClassBuilder& constructor() {
+        Value       proto = proto_tbl_;   // shared_ptr copy — same underlying table
+        std::string cname = class_name_;
         proto_tbl_.as_table()->set("new", Value::from_native(
             class_name_ + ".new",
-            [this](std::vector<Value> args) -> std::vector<Value> {
-                return {make_instance<Args...>(args, std::index_sequence_for<Args...>{})};
+            [proto, cname](std::vector<Value> args) mutable -> std::vector<Value> {
+                return {make_instance_impl<Args...>(args, proto, cname,
+                                                    std::index_sequence_for<Args...>{})};
             }
         ));
         return *this;
@@ -160,11 +163,13 @@ public:
 
     // Default constructor
     ClassBuilder& constructor() {
+        Value       proto = proto_tbl_;
+        std::string cname = class_name_;
         proto_tbl_.as_table()->set("new", Value::from_native(
             class_name_ + ".new",
-            [this](std::vector<Value>) -> std::vector<Value> {
+            [proto, cname](std::vector<Value>) mutable -> std::vector<Value> {
                 auto obj = std::make_shared<T>();
-                return {wrap(obj)};
+                return {wrap_impl(obj, proto, cname)};
             }
         ));
         return *this;
@@ -274,23 +279,23 @@ private:
         return r;
     }
 
-    Value wrap(std::shared_ptr<T> obj) {
+    // Static wrap: can be called from lambdas that don't hold a ClassBuilder*.
+    static Value wrap_impl(std::shared_ptr<T> obj, const Value& proto_tbl,
+                           const std::string& class_name) {
         Value inst = Value::from_table();
-        // Register so get_self can find it
         registry()[obj.get()] = obj;
-
-        // Copy methods from prototype into instance
-        auto* proto = proto_tbl_.as_table();
         auto* inst_tbl = inst.as_table();
-        for (auto& [k, v] : proto->hash) {
+        for (auto& [k, v] : proto_tbl.as_table()->hash) {
             if (k != "new") inst_tbl->set(k, v);
         }
-
-        // Store raw pointer as an int (safe: we keep the shared_ptr alive in registry)
         uintptr_t raw = (uintptr_t)obj.get();
         inst_tbl->set("__raw__", Value::from_int((int64_t)raw));
-        inst_tbl->set("__type__", Value::from_string(class_name_));
+        inst_tbl->set("__type__", Value::from_string(class_name));
         return inst;
+    }
+
+    Value wrap(std::shared_ptr<T> obj) {
+        return wrap_impl(obj, proto_tbl_, class_name_);
     }
 
     static std::shared_ptr<T> get_self(const Value& v, const std::string& ctx) {
@@ -305,11 +310,13 @@ private:
     }
 
     template<typename... Args, size_t... I>
-    Value make_instance(const std::vector<Value>& args, std::index_sequence<I...>) {
+    static Value make_instance_impl(const std::vector<Value>& args,
+                                    const Value& proto_tbl, const std::string& class_name,
+                                    std::index_sequence<I...>) {
         auto obj = std::make_shared<T>(
             ArgOf<Args>::get(I < args.size() ? args[I] : Value::nil(), (int)I)...
         );
-        return wrap(obj);
+        return wrap_impl(obj, proto_tbl, class_name);
     }
 
     template<typename Ret, typename... Args, size_t... I>

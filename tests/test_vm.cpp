@@ -674,7 +674,7 @@ TEST_CASE("raw string keeps backslash sequences literal", "[vm][raw_string]") {
     CHECK(c.global("s").as_string().size() == 10);
 }
 
-TEST_CASE("raw string keeps braces as text — no interpolation", "[vm][raw_string]") {
+TEST_CASE("raw string keeps braces as text - no interpolation", "[vm][raw_string]") {
     Ctx c;
     // If interpolation ran, {1+1} would become "2"; in a raw string it stays literal
     REQUIRE(c.run("var s = `result is {1+1}`"));

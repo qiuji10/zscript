@@ -8,9 +8,11 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <thread>
+namespace fs = std::filesystem;
 
 using namespace zscript;
 
@@ -23,17 +25,16 @@ static void write_file(const std::string& path, const std::string& contents) {
 }
 
 static std::string tmp_dir() {
-    return "/tmp/zscript_phase4_test";
+    return (fs::temp_directory_path() / "zscript_phase4_test").string();
 }
 
 static void mkdir_p(const std::string& path) {
-    std::string cmd = "mkdir -p " + path;
-    (void)std::system(cmd.c_str());
+    fs::create_directories(path);
 }
 
 static void rm_rf(const std::string& path) {
-    std::string cmd = "rm -rf " + path;
-    (void)std::system(cmd.c_str());
+    std::error_code ec;
+    fs::remove_all(path, ec); // ignore errors (dir may not exist)
 }
 
 struct ChangeLog {

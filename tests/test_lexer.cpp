@@ -549,7 +549,7 @@ TEST_CASE("backtick raw string keeps backslash escape sequences literal", "[lexe
     CHECK(ts[0].lexeme == "no\\nescape");
 }
 
-TEST_CASE("backtick raw string keeps braces literal — no interpolation", "[lexer][raw_string]") {
+TEST_CASE("backtick raw string keeps braces literal - no interpolation", "[lexer][raw_string]") {
     auto ts = lex("`value is {x + 1}`");
     REQUIRE(kind(ts, 0) == TokenKind::LitString);
     CHECK(ts[0].lexeme == "value is {x + 1}");
