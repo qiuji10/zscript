@@ -50,8 +50,15 @@ bool Parser::match(TokenKind k) {
 const Token& Parser::expect(TokenKind k, const char* msg) {
     if (!check(k)) {
         record_error(msg);
-        // Return the current token anyway so callers can inspect location;
-        // we do NOT advance, allowing the recovery logic above to try again.
+        // Advance past the unexpected token so every caller loop makes progress
+        // and cannot spin forever on the same token.
+        // Exception: don't consume closing delimiters or EOF — outer loops rely
+        // on seeing them to terminate (e.g. a '}' that ends the enclosing block).
+        bool is_delimiter = check(TokenKind::RBrace)   ||
+                            check(TokenKind::RBracket) ||
+                            check(TokenKind::RParen)   ||
+                            check(TokenKind::Eof);
+        if (!is_delimiter) advance();
         return peek();
     }
     return advance();

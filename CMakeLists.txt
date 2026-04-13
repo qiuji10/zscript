@@ -142,7 +142,11 @@ if(ZSCRIPT_FUZZ)
     add_executable(fuzz_lexer_parser fuzz/fuzz_lexer_parser.cpp)
     target_link_libraries(fuzz_lexer_parser PRIVATE zscript_core)
     if(WIN32)
-        # ASAN on Windows requires extra runtime setup; use fuzzer-only sanitizer.
+        # clang_rt.fuzzer is compiled with static CRT (/MT).
+        # The target must use the same runtime to avoid a /failifmismatch link error.
+        set_target_properties(fuzz_lexer_parser PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        # ASAN on Windows requires extra runtime DLLs not present on CI runners.
         target_compile_options(fuzz_lexer_parser PRIVATE -fsanitize=fuzzer -g)
         target_link_options   (fuzz_lexer_parser PRIVATE -fsanitize=fuzzer)
     else()
