@@ -1,3 +1,4 @@
+#include "ast_dump.h"
 #include "chunk.h"
 #include "compiler.h"
 #include "dap.h"
@@ -226,6 +227,46 @@ static int cmd_check(int argc, char* argv[]) {
     return had_error ? 1 : 0;
 }
 
+static int cmd_dump(int argc, char* argv[]) {
+    // zsc dump [--engine=...] <file.zs>  — parse and print AST
+    EngineMode engine = EngineMode::None;
+    std::string file;
+    for (int i = 0; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--engine=unreal") engine = EngineMode::Unreal;
+        else if (arg == "--engine=unity") engine = EngineMode::Unity;
+        else if (arg == "--engine=none")  engine = EngineMode::None;
+        else if (arg[0] != '-') file = arg;
+    }
+    if (file.empty()) {
+        std::cerr << "usage: zsc dump [--engine=...] <file.zs>\n";
+        return 1;
+    }
+
+    std::string src = read_file(file);
+    if (src.empty() && !std::ifstream(file)) {
+        std::cerr << "zsc: cannot open '" << file << "'\n";
+        return 1;
+    }
+
+    Lexer lexer(src, file);
+    auto tokens = lexer.tokenize();
+    if (lexer.has_errors()) {
+        print_errors(file, lexer.errors());
+        return 1;
+    }
+
+    Parser parser(std::move(tokens), file);
+    Program prog = parser.parse();
+    if (parser.has_errors()) {
+        print_errors(file, parser.errors());
+        return 1;
+    }
+
+    dump_ast(std::cout, prog);
+    return 0;
+}
+
 static int cmd_lsp(int /*argc*/, char* /*argv*/[]) {
     zscript::LspServer server;
     server.run();
@@ -246,6 +287,7 @@ static void print_usage() {
         "  zsc check   [--engine=...] <file.zs>                compile only, report errors\n"
         "  zsc compile [--engine=...] <file.zs> [-o out.zbc]   compile to bytecode\n"
         "  zsc disasm  <file.zbc>                               disassemble bytecode\n"
+        "  zsc dump    [--engine=...] <file.zs>                 parse and print AST\n"
         "  zsc lsp                                              start LSP server (stdio)\n"
         "  zsc dap                                              start DAP server (stdio)\n"
         "\n"
@@ -275,6 +317,8 @@ int main(int argc, char* argv[]) {
         return cmd_compile(argc - 2, argv + 2);
     if (cmd == "disasm")
         return cmd_disasm(argc - 2, argv + 2);
+    if (cmd == "dump")
+        return cmd_dump(argc - 2, argv + 2);
     if (cmd == "lsp")
         return cmd_lsp(argc - 2, argv + 2);
     if (cmd == "dap")

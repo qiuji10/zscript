@@ -30,7 +30,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 
 ### AST
 - [x] Define AST node types (one struct/class per construct)
-- [ ] AST pretty-printer (for debugging)
+- [x] AST pretty-printer (for debugging) — `zsc dump <file.zs>`
 - [x] Source location attached to every node (for error messages + source maps)
 
 ---
