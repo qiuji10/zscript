@@ -158,13 +158,12 @@ if(ZSCRIPT_FUZZ)
     endif()
     add_executable(fuzz_lexer_parser fuzz/fuzz_lexer_parser.cpp)
     target_link_libraries(fuzz_lexer_parser PRIVATE zscript_core)
-    if(WIN32)
-        # ASAN on Windows requires extra runtime DLLs not present on CI runners.
-        target_compile_options(fuzz_lexer_parser PRIVATE -fsanitize=fuzzer -g)
-        target_link_options   (fuzz_lexer_parser PRIVATE -fsanitize=fuzzer)
-    else()
-        target_compile_options(fuzz_lexer_parser PRIVATE -fsanitize=fuzzer,address -g)
-        target_link_options   (fuzz_lexer_parser PRIVATE -fsanitize=fuzzer,address)
-    endif()
+    # Use -fsanitize=fuzzer,address on all platforms.
+    # On Windows, Clang 20+ pulls in clang_rt.ubsan_standalone as a transitive
+    # dependency of the fuzzer runtime; ubsan_standalone needs __coe_win symbols
+    # and dbghelp.lib, both of which are satisfied by linking ASAN.
+    # GitHub's Windows runners ship VS2022 with full ASAN support.
+    target_compile_options(fuzz_lexer_parser PRIVATE -fsanitize=fuzzer,address -g)
+    target_link_options   (fuzz_lexer_parser PRIVATE -fsanitize=fuzzer,address)
     message(STATUS "Fuzzer target: fuzz_lexer_parser")
 endif()
