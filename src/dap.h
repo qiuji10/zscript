@@ -1,5 +1,6 @@
 #pragma once
 #include "json.h"
+#include "value.h"
 #include "vm.h"
 #include <cstdint>
 #include <string>
@@ -94,6 +95,7 @@ private:
         std::string source;
         int         line   = 0;
         std::string name;
+        std::vector<std::pair<std::string, Value>> locals;
     };
     std::vector<FrameInfo> frames_;
 };

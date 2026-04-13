@@ -3,6 +3,7 @@
 #include "gc.h"
 #include "module.h"
 #include "value.h"
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -82,6 +83,22 @@ public:
 
     const RuntimeError& last_error() const { return last_error_; }
 
+    // --- debugger ---
+    // Line hook: called each time execution enters a new source line.
+    // Arguments: source file path, 1-based line number, call depth (0 = top level).
+    // The hook may block internally (e.g. to wait for step/continue from DAP).
+    using LineHook = std::function<void(const std::string& source, int line, int depth)>;
+    void set_line_hook(LineHook hook) { line_hook_ = std::move(hook); }
+
+    // Per-frame debug info snapshot — call from inside a line hook callback.
+    struct DebugFrame {
+        std::string name;    // function/proto name
+        std::string source;  // source file path
+        int         line;    // current source line (1-based)
+        std::vector<std::pair<std::string, Value>> locals; // slot name → value
+    };
+    std::vector<DebugFrame> debug_frames() const;
+
 private:
     bool run(size_t stop_depth = 0);
     bool call(uint8_t base_reg, uint8_t num_args, uint8_t num_results);
@@ -148,6 +165,11 @@ private:
     void mark_roots(GC& gc);
     void runtime_error(const std::string& msg);
     std::string format_trace() const;
+
+    // Debugger hook state
+    LineHook    line_hook_;
+    std::string source_file_;      // set by execute(), used in line hook calls
+    uint32_t    last_hook_line_ = 0; // suppress duplicate fires for the same line
 };
 
 } // namespace zscript

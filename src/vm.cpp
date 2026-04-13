@@ -1371,6 +1371,8 @@ bool VM::execute(Chunk& chunk) {
         last_error_ = {"empty chunk", ""};
         return false;
     }
+    source_file_    = chunk.filename;
+    last_hook_line_ = 0;
     // Push main frame at base reg 0
     frames_.clear();
     frames_.push_back({chunk.main_proto, 0, 0});
@@ -1383,6 +1385,35 @@ bool VM::execute(Chunk& chunk) {
         last_error_ = {e.what(), ""};
         return false;
     }
+}
+
+std::vector<VM::DebugFrame> VM::debug_frames() const {
+    std::vector<DebugFrame> result;
+    result.reserve(frames_.size());
+    for (size_t i = 0; i < frames_.size(); ++i) {
+        auto& f = frames_[i];
+        DebugFrame df;
+        df.name   = (f.proto && !f.proto->name.empty()) ? f.proto->name : "<main>";
+        df.source = source_file_;
+        // The line hook fires BEFORE pc is incremented for the innermost frame,
+        // so for it we use f.pc directly. For outer (suspended) frames, pc was
+        // already incremented past the Call instruction, so use f.pc - 1.
+        bool is_innermost = (i == frames_.size() - 1);
+        size_t line_pc = is_innermost ? f.pc : (f.pc > 0 ? f.pc - 1 : 0);
+        df.line = (f.proto && line_pc < f.proto->lines.size())
+                  ? (int)f.proto->lines[line_pc] : 0;
+        if (f.proto) {
+            const auto& names = f.proto->local_names;
+            for (size_t i = 0; i < names.size(); ++i) {
+                if (names[i].empty()) continue;
+                uint16_t abs = (uint16_t)(f.base_reg + i);
+                if (abs < MAX_REGS)
+                    df.locals.push_back({names[i], regs_[abs]});
+            }
+        }
+        result.push_back(std::move(df));
+    }
+    return result;
 }
 
 // ===========================================================================
@@ -1696,6 +1727,15 @@ bool VM::run(size_t stop_depth) {
 
         try {
         while (!frame_changed && pc < proto->code.size()) {
+            // Fire line hook when source line changes (before executing instruction)
+            if (line_hook_ && pc < proto->lines.size()) {
+                uint32_t new_line = proto->lines[pc];
+                if (new_line != 0 && new_line != last_hook_line_) {
+                    last_hook_line_ = new_line;
+                    line_hook_(source_file_, (int)new_line, (int)frames_.size() - 1);
+                }
+            }
+
             uint32_t instr = proto->code[pc++];
             Op       op  = instr_op(instr);
             uint8_t  A   = instr_A(instr);

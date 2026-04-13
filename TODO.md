@@ -91,7 +91,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] String built-in methods: already implemented — see stdlib `string` table
 - [x] String multiline / raw literals — backtick strings `` `hello\nworld` `` (no escape processing, no interpolation, multiline)
 - [x] Range type and range iteration (`0..10`, `0..<10`) — first-class range values via `NewRange`/`NewRangeExcl` opcodes; `TLen` and `GetIndex` handle them transparently; passable to functions
-- [ ] Generics / type parameters (syntax parsed; semantic checking not yet implemented)
+- [x] Generics / type parameters — type params as leading locals; `T()`, `item is T`, `T == "int"` patterns; `IsInstanceDynamic` opcode for runtime `is T` checks
 
 ---
 
@@ -175,19 +175,22 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 ## Phase 6 — Tooling
 
 ### CLI (`zsc`)
-- [ ] `zsc compile <file.zs> -o <file.zbc>` — compile to bytecode
-- [ ] `zsc run <file.zs>` — compile + execute
-- [ ] `zsc disasm <file.zbc>` — disassemble bytecode
-- [ ] `--engine=unreal|unity|none` flag (sets engine mode for conditional stripping)
-- [ ] Human-readable error output with line/column
+- [x] `zsc compile <file.zs> -o <file.zbc>` — compile to bytecode
+- [x] `zsc run <file.zs>` — compile + execute
+- [x] `zsc check <file.zs>` — compile only, report errors
+- [x] `zsc disasm <file.zbc>` — disassemble bytecode
+- [x] `--engine=unreal|unity|none` flag (sets engine mode for conditional stripping)
+- [x] Human-readable error output with line/column
+- [x] Shortcut: `zsc <file.zs>` acts as `zsc run <file.zs>`
 
 ### LSP Server
-- [-] LSP server skeleton (stdio transport) — `src/lsp.cpp` / `src/lsp.h` exist as stubs
-- [ ] `textDocument/completion` — autocomplete identifiers, methods, types
-- [ ] `textDocument/definition` — go-to-definition
-- [ ] `textDocument/hover` — type info on hover
-- [ ] `textDocument/publishDiagnostics` — inline errors
-- [ ] VS Code extension scaffold
+- [x] LSP server — JSON-RPC stdio transport, full message loop
+- [x] `textDocument/completion` — prefix-filtered identifiers, dot-completion for class members and stdlib modules (math, string, table, io), keywords, stdlib builtins
+- [x] `textDocument/definition` — go-to-definition for functions, classes, variables, members
+- [x] `textDocument/hover` — signature + type info on hover
+- [x] `textDocument/signatureHelp` — active parameter highlighting on `(` / `,`
+- [x] `textDocument/publishDiagnostics` — inline lex/parse/compile errors + undefined symbol warnings
+- [x] VS Code extension — TypeScript client, syntax highlighting (TextMate grammar), DAP wiring, server-path auto-detect, restart command
 
 ### Debugger (DAP)
 - [-] DAP server skeleton — `src/dap.cpp` / `src/dap.h` exist as stubs

@@ -284,6 +284,12 @@ void Compiler::compile_fn_decl(const FnDecl& fn, uint8_t dest_reg, uint32_t line
         emit_ABx(Op::Return, 0, 0);
     }
 
+    // Capture local_names BEFORE pop_scope() clears the locals list
+    fn_proto->local_names.resize(child_fs.max_reg);
+    for (auto& local : child_fs.locals)
+        if (local.reg < (uint8_t)fn_proto->local_names.size())
+            fn_proto->local_names[local.reg] = local.name;
+
     pop_scope();
     fn_proto->max_regs = child_fs.max_reg;
     cur_fn_ = prev;
@@ -436,9 +442,16 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
         if (fn_proto->code.empty() ||
             instr_op(fn_proto->code.back()) != Op::Return)
             emit_ABx(Op::Return, 0, 0);
-        pop_scope();
 
+        // Capture local_names BEFORE pop_scope() clears the locals list
+        fn_proto->local_names.resize(child_fs.max_reg);
+        for (auto& local : child_fs.locals)
+            if (local.reg < (uint8_t)fn_proto->local_names.size())
+                fn_proto->local_names[local.reg] = local.name;
+
+        pop_scope();
         fn_proto->max_regs = child_fs.max_reg;
+
         cur_fn_             = prev;
         current_class_      = "";
         current_base_class_ = "";

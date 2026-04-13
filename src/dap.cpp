@@ -209,25 +209,26 @@ void DapServer::on_stack_trace(int seq, const Json& /*args*/) {
 
 void DapServer::on_scopes(int seq, const Json& args) {
     int frame_id = (int)args["frameId"].int_or(0);
-    clear_var_refs(); // reset on each stop
+    // Note: do NOT clear_var_refs() here — the client may request variables from
+    // multiple frames without re-querying scopes. We clear on each stopped event instead.
 
     Json scopes_arr = Json::array();
 
-    // Locals scope
+    // Locals scope for this specific frame
     int locals_ref = new_var_ref(frame_id, "locals");
-    Json locals = Json::object();
-    locals["name"]               = "Locals";
-    locals["variablesReference"] = locals_ref;
-    locals["expensive"]          = false;
-    scopes_arr.push_back(std::move(locals));
+    Json locals_scope = Json::object();
+    locals_scope["name"]               = "Locals";
+    locals_scope["variablesReference"] = locals_ref;
+    locals_scope["expensive"]          = false;
+    scopes_arr.push_back(std::move(locals_scope));
 
-    // Globals scope
+    // Globals scope (frame-independent)
     int globals_ref = new_var_ref(frame_id, "globals");
-    Json globals = Json::object();
-    globals["name"]               = "Globals";
-    globals["variablesReference"] = globals_ref;
-    globals["expensive"]          = false;
-    scopes_arr.push_back(std::move(globals));
+    Json globals_scope = Json::object();
+    globals_scope["name"]               = "Globals";
+    globals_scope["variablesReference"] = globals_ref;
+    globals_scope["expensive"]          = true;
+    scopes_arr.push_back(std::move(globals_scope));
 
     Json body = Json::object();
     body["scopes"] = std::move(scopes_arr);
@@ -240,17 +241,28 @@ void DapServer::on_variables(int seq, const Json& args) {
 
     if (vm_ && ref > 0 && ref <= (int)var_refs_.size()) {
         auto& vr = var_refs_[ref - 1];
-        if (vr.scope == "globals") {
-            for (auto& [name, val] : vm_->globals()) {
-                Json v = Json::object();
-                v["name"]               = name;
-                v["value"]              = val.to_string();
-                v["type"]               = val.type_name();
-                v["variablesReference"] = 0;
-                vars_arr.push_back(std::move(v));
+
+        auto make_var = [](const std::string& name, const Value& val) {
+            Json v = Json::object();
+            v["name"]               = name;
+            v["value"]              = val.to_string();
+            v["type"]               = val.type_name();
+            v["variablesReference"] = 0;
+            return v;
+        };
+
+        if (vr.scope == "locals") {
+            // frames_ is ordered innermost-last; frame_id 0 = innermost (top of stack)
+            // on_stack_trace reverses the order, so frame_id maps to frames_.back() - frame_id
+            int fi = (int)frames_.size() - 1 - vr.frame_id;
+            if (fi >= 0 && fi < (int)frames_.size()) {
+                for (auto& [name, val] : frames_[fi].locals)
+                    vars_arr.push_back(make_var(name, val));
             }
+        } else if (vr.scope == "globals") {
+            for (auto& [name, val] : vm_->globals())
+                vars_arr.push_back(make_var(name, val));
         }
-        // locals: would require VM frame inspection — emit empty for now
     }
 
     Json body = Json::object();
@@ -315,10 +327,10 @@ void DapServer::launch_script(const std::string& path) {
     // Read source
     std::ifstream f(path);
     if (!f) {
-        send_event("output", Json::object());
         Json body = Json::object();
-        body["reason"] = "exited";
-        send_event("exited", std::move(body));
+        body["category"] = "stderr";
+        body["output"]   = "Cannot open file: " + path + "\n";
+        send_event("output", std::move(body));
         send_event("terminated");
         return;
     }
@@ -334,7 +346,7 @@ void DapServer::launch_script(const std::string& path) {
     Compiler comp(EngineMode::None);
     auto chunk = comp.compile(prog, path);
 
-    if (comp.has_errors() || pr.has_errors() || lx.has_errors()) {
+    if (lx.has_errors() || pr.has_errors() || comp.has_errors()) {
         Json body = Json::object();
         body["category"] = "stderr";
         body["output"]   = "Compile error in " + path + "\n";
@@ -348,14 +360,71 @@ void DapServer::launch_script(const std::string& path) {
     vm_->open_io();
     vm_->open_os();
 
-    // Register a line hook — the VM doesn't have a native hook yet, so
-    // we run the script and emit a stopped event when we detect we should stop.
-    // Full single-step support would require a VM hook (Phase 6 extension).
-    // For now: run to completion, emitting breakpoint stops at matching lines.
+    // In DAP mode stdout is reserved for the DAP wire protocol, so we
+    // intercept print/println and route their output as DAP "output" events
+    // instead of writing directly to std::cout (which would corrupt the stream).
+    auto make_print_fn = [this](bool newline) {
+        return [this, newline](std::vector<Value> args) -> std::vector<Value> {
+            std::string out;
+            for (size_t i = 0; i < args.size(); ++i) {
+                if (i > 0) out += '\t';
+                out += args[i].to_string();
+            }
+            if (newline) out += '\n';
+            Json body = Json::object();
+            body["category"] = "stdout";
+            body["output"]   = out;
+            send_event("output", std::move(body));
+            return {};
+        };
+    };
+    vm_->register_function("print",   make_print_fn(true));
+    vm_->register_function("println", make_print_fn(false));
 
-    // Note: deep single-step integration requires vm_.set_line_hook(). That's
-    // a VM extension tracked separately. This version handles launch + breakpoints
-    // at the DAP protocol level; the VM runs the full script.
+    // Install line hook — fires each time the VM enters a new source line.
+    // When the hook determines we should stop (breakpoint / step), it:
+    //   1. Captures the call stack snapshot from the VM
+    //   2. Sends a DAP `stopped` event
+    //   3. Blocks in a message-read loop until the client sends continue/step/disconnect
+    vm_->set_line_hook([this](const std::string& source, int line, int depth) {
+        if (!should_stop(source, line)) return;
+
+        // Reset variable references — stale refs from previous stop are invalid
+        clear_var_refs();
+
+        // Snapshot call stack
+        frames_.clear();
+        for (auto& df : vm_->debug_frames()) {
+            FrameInfo fi;
+            fi.source = df.source;
+            fi.line   = df.line;
+            fi.name   = df.name;
+            fi.locals = df.locals;
+            frames_.push_back(std::move(fi));
+        }
+
+        // Send stopped event
+        Json body = Json::object();
+        body["reason"]            = stop_reason_.empty() ? "step" : stop_reason_;
+        body["threadId"]          = 1;
+        body["allThreadsStopped"] = true;
+        send_event("stopped", std::move(body));
+        stop_reason_ = "";
+
+        // Block until the client sends continue / next / stepIn / stepOut / disconnect
+        // We reuse the same step_mode_ flag: set it to Pause here, and the
+        // handler for continue/next/stepIn/stepOut will change it away from Pause.
+        step_mode_ = StepMode::Pause;
+        Json msg;
+        while (step_mode_ == StepMode::Pause && !terminated_) {
+            if (!read_message(msg)) { terminated_ = true; break; }
+            handle(msg);
+        }
+
+        // For StepOver/StepOut, record the current depth so should_stop can check it
+        if (step_mode_ == StepMode::StepOver || step_mode_ == StepMode::StepOut)
+            step_depth_ = depth;
+    });
 
     bool ok = vm_->execute(*chunk);
 
