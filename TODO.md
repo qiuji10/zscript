@@ -193,11 +193,12 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] VS Code extension — TypeScript client, syntax highlighting (TextMate grammar), DAP wiring, server-path auto-detect, restart command
 
 ### Debugger (DAP)
-- [-] DAP server skeleton — `src/dap.cpp` / `src/dap.h` exist as stubs
-- [ ] Breakpoint set/clear
-- [ ] Step over / step into / step out
-- [ ] Variable inspection (locals, upvalues, globals)
-- [ ] Stack frame display
+- [x] DAP server — `src/dap.cpp` / `src/dap.h`, stdio transport, full message loop
+- [x] Breakpoint set/clear — verified, line-level
+- [x] Step over / step into / step out
+- [x] Variable inspection (locals, globals) — local_names captured per frame
+- [x] Stack frame display — multi-frame with source/line info
+- [x] Script output routed as DAP `output` events (stdout not corrupted)
 
 ---
 
