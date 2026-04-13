@@ -1,4 +1,18 @@
 cmake_minimum_required(VERSION 3.18)
+
+# ---------------------------------------------------------------------------
+# Fuzzer option must be declared BEFORE project() so the CRT choice below
+# takes effect for ALL targets (including zscript_core).
+# ---------------------------------------------------------------------------
+option(ZSCRIPT_FUZZ "Build libFuzzer targets (requires clang -fsanitize=fuzzer)" OFF)
+
+# On Windows, clang_rt.fuzzer is compiled with static CRT (/MT).
+# Every target in the build must use the same CRT or lld-link will error.
+# Setting CMAKE_MSVC_RUNTIME_LIBRARY here covers zscript_core and all tests.
+if(ZSCRIPT_FUZZ AND WIN32)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 project(zscript VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -127,10 +141,13 @@ zscript_discover_tests(test_generics)
 # ---------------------------------------------------------------------------
 # Fuzzer (libFuzzer) — opt-in via -DZSCRIPT_FUZZ=ON, requires clang.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Fuzzer (libFuzzer) — opt-in via -DZSCRIPT_FUZZ=ON.
 # Requires clang on any platform: clang++ on Linux/macOS, or the LLVM clang++
 # that ships with Visual Studio / LLVM installer on Windows.
-option(ZSCRIPT_FUZZ "Build libFuzzer targets (requires clang -fsanitize=fuzzer)" OFF)
+# NOTE: option(ZSCRIPT_FUZZ) is declared at the top of this file so the
+#       Windows static-CRT workaround applies to all targets.
+# ---------------------------------------------------------------------------
 if(ZSCRIPT_FUZZ)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR
@@ -142,10 +159,6 @@ if(ZSCRIPT_FUZZ)
     add_executable(fuzz_lexer_parser fuzz/fuzz_lexer_parser.cpp)
     target_link_libraries(fuzz_lexer_parser PRIVATE zscript_core)
     if(WIN32)
-        # clang_rt.fuzzer is compiled with static CRT (/MT).
-        # The target must use the same runtime to avoid a /failifmismatch link error.
-        set_target_properties(fuzz_lexer_parser PROPERTIES
-            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
         # ASAN on Windows requires extra runtime DLLs not present on CI runners.
         target_compile_options(fuzz_lexer_parser PRIVATE -fsanitize=fuzzer -g)
         target_link_options   (fuzz_lexer_parser PRIVATE -fsanitize=fuzzer)

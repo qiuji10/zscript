@@ -287,7 +287,7 @@ DeclPtr Parser::parse_class_decl(std::vector<Annotation> annots) {
             node->members.push_back(parse_prop_decl(std::move(member_annots)));
         } else {
             record_error("expected class member (fn, let, var, prop, or static)");
-            synchronize();
+            if (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) advance();
         }
     }
 
@@ -329,7 +329,7 @@ DeclPtr Parser::parse_trait_decl(std::vector<Annotation> annots) {
             node->members.push_back(parse_prop_decl(std::move(member_annots)));
         } else {
             record_error("expected trait member (fn or prop)");
-            synchronize();
+            if (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) advance();
         }
     }
 
@@ -369,7 +369,7 @@ DeclPtr Parser::parse_impl_decl(std::vector<Annotation> annots) {
             node->members.push_back(parse_prop_decl(std::move(member_annots)));
         } else {
             record_error("expected impl member (fn or prop)");
-            synchronize();
+            if (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) advance();
         }
     }
 
