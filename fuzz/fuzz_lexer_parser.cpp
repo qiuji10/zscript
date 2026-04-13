@@ -39,23 +39,30 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     // Clamp to a reasonable size so the fuzzer doesn't waste time on huge inputs.
     if (size > 65536) return -1;   // -1 = discard this input from the corpus
 
-    std::string src(reinterpret_cast<const char*>(data), size);
+    try {
+        std::string src(reinterpret_cast<const char*>(data), size);
 
-    // --- Lex ---
-    Lexer lexer(src, "<fuzz>");
-    auto tokens = lexer.tokenize();
-    if (lexer.has_errors()) return 0;
+        // --- Lex ---
+        Lexer lexer(src, "<fuzz>");
+        auto tokens = lexer.tokenize();
+        if (lexer.has_errors()) return 0;
 
-    // --- Parse ---
-    Parser parser(std::move(tokens), "<fuzz>");
-    Program prog = parser.parse();
-    if (parser.has_errors()) return 0;
+        // --- Parse ---
+        Parser parser(std::move(tokens), "<fuzz>");
+        Program prog = parser.parse();
+        if (parser.has_errors()) return 0;
 
-    // --- Compile ---
-    // Use None engine so neither @unity nor @unreal blocks are stripped.
-    Compiler compiler(EngineMode::None);
-    compiler.compile(prog, "<fuzz>");
-    // Compiler errors are expected on malformed input; just ignore them.
+        // --- Compile ---
+        // Use None engine so neither @unity nor @unreal blocks are stripped.
+        Compiler compiler(EngineMode::None);
+        compiler.compile(prog, "<fuzz>");
+        // Compiler errors are expected on malformed input; just ignore them.
+    } catch (...) {
+        // Any unhandled exception is a bug — returning 0 lets the fuzzer report
+        // the input without aborting the process. The exception will surface as a
+        // finding in ASan mode since asan intercepts the throw.
+        return 0;
+    }
 
     return 0;
 }

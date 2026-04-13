@@ -18,7 +18,8 @@ public:
     Program parse();
 
     const std::vector<ParseError>& errors() const { return errors_; }
-    bool has_errors() const { return !errors_.empty(); }
+    bool has_errors()       const { return !errors_.empty(); }
+    bool error_limit_hit()  const { return error_limit_hit_; }
 
 private:
     // ---- token navigation ----
@@ -102,6 +103,8 @@ private:
     size_t                  pos_ = 0;
     std::string             filename_;
     std::vector<ParseError> errors_;
+    bool                    error_limit_hit_ = false;
+    static constexpr size_t kMaxErrors = 200;
 };
 
 } // namespace zscript

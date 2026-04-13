@@ -69,10 +69,11 @@ ParseError Parser::make_error(const char* msg) {
 }
 
 void Parser::record_error(const char* msg) {
-    if (errors_.size() >= 200) {
-        // Too many errors — stop accumulating to prevent OOM on malformed input.
-        // Throw so the top-level catch in parse() calls synchronize() and skips ahead.
-        throw std::runtime_error("too many parse errors");
+    if (errors_.size() >= kMaxErrors) {
+        // Silently cap — no throw (throwing from here escapes inner parsing loops
+        // and can surface in test/fuzzer call sites not wrapped by parse()'s catch).
+        error_limit_hit_ = true;
+        return;
     }
     errors_.push_back(make_error(msg));
 }
@@ -110,7 +111,7 @@ void Parser::synchronize() {
 // ===========================================================================
 Program Parser::parse() {
     Program prog;
-    while (!check(TokenKind::Eof)) {
+    while (!check(TokenKind::Eof) && !error_limit_hit_) {
         try {
             // Engine block at top level: @unity { } / @unreal { }
             // Detect before parse_annotations() consumes the tokens.
