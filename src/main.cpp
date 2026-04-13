@@ -50,9 +50,27 @@ static void print_errors(const std::string& path,
     }
 }
 
+// Parse --tag=<name> flags (repeatable) from an argv array.
+// Rejects names that are not valid identifiers and prints an error.
+static TagSet parse_tags(int argc, char* argv[]) {
+    TagSet tags;
+    for (int i = 0; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg.rfind("--tag=", 0) != 0) continue;
+        std::string name = arg.substr(6);
+        if (!is_valid_tag(name)) {
+            std::cerr << "zsc: invalid tag name '" << name
+                      << "' (must match [A-Za-z_][A-Za-z0-9_]*)\n";
+            std::exit(1);
+        }
+        tags.insert(name);
+    }
+    return tags;
+}
+
 // Compile a .zs source file → Chunk. Returns nullptr on error.
 static std::unique_ptr<Chunk> compile_source(const std::string& path,
-                                              EngineMode engine,
+                                              const TagSet& tags,
                                               bool& had_error) {
     std::string src = read_file(path);
     if (src.empty() && !std::ifstream(path)) {
@@ -77,7 +95,7 @@ static std::unique_ptr<Chunk> compile_source(const std::string& path,
         return nullptr;
     }
 
-    Compiler compiler(engine);
+    Compiler compiler(tags);
     auto chunk = compiler.compile(prog, path);
     if (!compiler.errors().empty())
         print_errors(path, compiler.errors());
@@ -94,29 +112,25 @@ static std::unique_ptr<Chunk> compile_source(const std::string& path,
 // ---------------------------------------------------------------------------
 
 static int cmd_run(int argc, char* argv[]) {
-    // zsc run [--engine=unreal|unity|none] <file.zs>
-    EngineMode engine = EngineMode::None;
+    // zsc run [--tag=<name>]... <file.zs>
+    TagSet tags = parse_tags(argc, argv);
     std::string file;
-
     for (int i = 0; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--engine=unreal") engine = EngineMode::Unreal;
-        else if (arg == "--engine=unity") engine = EngineMode::Unity;
-        else if (arg == "--engine=none") engine = EngineMode::None;
-        else if (arg[0] != '-') file = arg;
+        if (arg[0] != '-') file = arg;
     }
 
     if (file.empty()) {
-        std::cerr << "usage: zsc run [--engine=unreal|unity|none] <file.zs>\n";
+        std::cerr << "usage: zsc run [--tag=<name>]... <file.zs>\n";
         return 1;
     }
 
     bool had_error = false;
-    auto chunk = compile_source(file, engine, had_error);
+    auto chunk = compile_source(file, tags, had_error);
     if (had_error) return 1;
 
     VM vm;
-    vm.set_engine(engine);
+    for (auto& t : tags) vm.add_tag(t);
     vm.open_stdlib();
     vm.open_io();
     vm.open_os();
@@ -135,25 +149,21 @@ static int cmd_run(int argc, char* argv[]) {
 }
 
 static int cmd_compile(int argc, char* argv[]) {
-    // zsc compile [--engine=...] <file.zs> [-o <file.zbc>]
-    EngineMode engine = EngineMode::None;
+    // zsc compile [--tag=<name>]... <file.zs> [-o <file.zbc>]
+    TagSet tags = parse_tags(argc, argv);
     std::string input, output;
 
     for (int i = 0; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--engine=unreal") engine = EngineMode::Unreal;
-        else if (arg == "--engine=unity") engine = EngineMode::Unity;
-        else if (arg == "--engine=none") engine = EngineMode::None;
-        else if ((arg == "-o") && i + 1 < argc) output = argv[++i];
+        if ((arg == "-o") && i + 1 < argc) output = argv[++i];
         else if (arg[0] != '-') input = arg;
     }
 
     if (input.empty()) {
-        std::cerr << "usage: zsc compile [--engine=...] <file.zs> [-o <file.zbc>]\n";
+        std::cerr << "usage: zsc compile [--tag=<name>]... <file.zs> [-o <file.zbc>]\n";
         return 1;
     }
     if (output.empty()) {
-        // Replace .zs with .zbc
         output = input;
         if (output.size() > 3 && output.substr(output.size() - 3) == ".zs")
             output = output.substr(0, output.size() - 3) + ".zbc";
@@ -162,7 +172,7 @@ static int cmd_compile(int argc, char* argv[]) {
     }
 
     bool had_error = false;
-    auto chunk = compile_source(input, engine, had_error);
+    auto chunk = compile_source(input, tags, had_error);
     if (had_error) return 1;
 
     std::ofstream out(output, std::ios::binary);
@@ -207,39 +217,32 @@ static int cmd_disasm(int argc, char* argv[]) {
 }
 
 static int cmd_check(int argc, char* argv[]) {
-    // zsc check [--engine=...] <file.zs>  — compile only, report errors
-    EngineMode engine = EngineMode::None;
+    // zsc check [--tag=<name>]... <file.zs>  — compile only, report errors
+    TagSet tags = parse_tags(argc, argv);
     std::string file;
     for (int i = 0; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--engine=unreal") engine = EngineMode::Unreal;
-        else if (arg == "--engine=unity") engine = EngineMode::Unity;
-        else if (arg == "--engine=none")  engine = EngineMode::None;
-        else if (arg[0] != '-') file = arg;
+        if (arg[0] != '-') file = arg;
     }
     if (file.empty()) {
-        std::cerr << "usage: zsc check [--engine=...] <file.zs>\n";
+        std::cerr << "usage: zsc check [--tag=<name>]... <file.zs>\n";
         return 1;
     }
     bool had_error = false;
-    compile_source(file, engine, had_error);
+    compile_source(file, tags, had_error);
     if (!had_error) std::cout << "ok\n";
     return had_error ? 1 : 0;
 }
 
 static int cmd_dump(int argc, char* argv[]) {
-    // zsc dump [--engine=...] <file.zs>  — parse and print AST
-    EngineMode engine = EngineMode::None;
+    // zsc dump [--tag=<name>]... <file.zs>  — parse and print AST
     std::string file;
     for (int i = 0; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--engine=unreal") engine = EngineMode::Unreal;
-        else if (arg == "--engine=unity") engine = EngineMode::Unity;
-        else if (arg == "--engine=none")  engine = EngineMode::None;
-        else if (arg[0] != '-') file = arg;
+        if (arg[0] != '-') file = arg;
     }
     if (file.empty()) {
-        std::cerr << "usage: zsc dump [--engine=...] <file.zs>\n";
+        std::cerr << "usage: zsc dump [--tag=<name>]... <file.zs>\n";
         return 1;
     }
 
@@ -283,18 +286,20 @@ static void print_usage() {
         "ZScript compiler and runtime\n"
         "\n"
         "Usage:\n"
-        "  zsc run     [--engine=unreal|unity|none] <file.zs>  compile and run\n"
-        "  zsc check   [--engine=...] <file.zs>                compile only, report errors\n"
-        "  zsc compile [--engine=...] <file.zs> [-o out.zbc]   compile to bytecode\n"
+        "  zsc run     [--tag=<name>]... <file.zs>              compile and run\n"
+        "  zsc check   [--tag=<name>]... <file.zs>              compile only, report errors\n"
+        "  zsc compile [--tag=<name>]... <file.zs> [-o out.zbc] compile to bytecode\n"
         "  zsc disasm  <file.zbc>                               disassemble bytecode\n"
-        "  zsc dump    [--engine=...] <file.zs>                 parse and print AST\n"
+        "  zsc dump    <file.zs>                                parse and print AST\n"
         "  zsc lsp                                              start LSP server (stdio)\n"
         "  zsc dap                                              start DAP server (stdio)\n"
         "\n"
+        "  --tag=<name>  activate a conditional @tag { } block (repeatable)\n"
+        "\n"
         "Examples:\n"
         "  zsc run hello.zs\n"
-        "  zsc check hello.zs\n"
-        "  zsc compile game.zs -o game.zbc\n"
+        "  zsc run --tag=unity --tag=windows game.zs\n"
+        "  zsc compile --tag=vulkan renderer.zs -o renderer.zbc\n"
         "  zsc disasm game.zbc\n";
 }
 

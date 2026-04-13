@@ -191,7 +191,7 @@ bool VM::load_file(const std::string& path) {
     if (parser.has_errors()) {
         last_error_ = {parser.errors()[0].message, ""}; return false;
     }
-    Compiler compiler(engine_);
+    Compiler compiler(tags_);
     auto chunk = compiler.compile(prog, path);
     if (compiler.has_errors()) {
         for (auto& e : compiler.errors())
@@ -1404,12 +1404,23 @@ void VM::intern_chunk_strings(Chunk& chunk) {
     }
 }
 
+const std::vector<CompiledAnnotation>& VM::get_annotations(const std::string& class_name) const {
+    static const std::vector<CompiledAnnotation> empty;
+    auto it = annotations_.find(class_name);
+    return it != annotations_.end() ? it->second : empty;
+}
+
 bool VM::execute(Chunk& chunk) {
     if (!chunk.main_proto) {
         last_error_ = {"empty chunk", ""};
         return false;
     }
     intern_chunk_strings(chunk);
+    // Merge compile-time annotation metadata into the VM registry.
+    // Later executions of the same class name overwrite earlier ones,
+    // consistent with how globals_ handles class re-definitions.
+    for (auto& [cls, anns] : chunk.annotations)
+        annotations_[cls] = anns;
     source_file_    = chunk.filename;
     last_hook_line_ = 0;
     // Push main frame at base reg 0

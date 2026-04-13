@@ -8,7 +8,7 @@ namespace zscript {
 // ===========================================================================
 // Constructor
 // ===========================================================================
-Compiler::Compiler(EngineMode engine) : engine_(engine) {}
+Compiler::Compiler(TagSet tags) : tags_(std::move(tags)) {}
 
 // ===========================================================================
 // Public entry
@@ -505,6 +505,19 @@ void Compiler::compile_class_decl(const ClassDecl& cls, uint32_t line) {
         free_reg(mark_reg);
     }
 
+    // Record annotations in the Chunk's metadata map (not on the VM heap).
+    // Scripts have no way to access or tamper with this data.
+    if (!cls.annotations.empty()) {
+        auto& list = chunk_->annotations[cls.name];
+        for (auto& ann : cls.annotations) {
+            if (ann.path.empty()) continue;
+            list.push_back({
+                ann.path[0],
+                ann.path.size() > 1 ? ann.path[1] : ""
+            });
+        }
+    }
+
     uint16_t cls_name_k = str_const(cls.name);
     emit_ABx(Op::SetGlobal, tbl_reg, cls_name_k, line);
     free_reg(tbl_reg);
@@ -703,8 +716,8 @@ void Compiler::compile_stmt(const Stmt& stmt) {
         compile_while(*s);
     } else if (auto* s = dynamic_cast<const ForStmt*>(&stmt)) {
         compile_for(*s);
-    } else if (auto* s = dynamic_cast<const EngineBlock*>(&stmt)) {
-        compile_engine_block(*s);
+    } else if (auto* s = dynamic_cast<const TagBlock*>(&stmt)) {
+        compile_tag_block(*s);
     } else if (auto* s = dynamic_cast<const MatchStmt*>(&stmt)) {
         compile_match(*s);
     } else if (auto* s = dynamic_cast<const ThrowStmt*>(&stmt)) {
@@ -1166,15 +1179,12 @@ void Compiler::compile_match(const MatchStmt& s) {
     free_reg(subj_reg);
 }
 
-void Compiler::compile_engine_block(const EngineBlock& s) {
-    // Strip at compile time based on engine mode
-    bool active = (s.engine == "unity"  && engine_ == EngineMode::Unity) ||
-                  (s.engine == "unreal" && engine_ == EngineMode::Unreal) ||
-                  engine_ == EngineMode::None; // emit always in None mode (generic)
-    if (active) {
+void Compiler::compile_tag_block(const TagBlock& s) {
+    // Emit the block only when its tag is in the active tag set.
+    if (tags_.count(s.tag)) {
         compile_block(s.body);
     }
-    // Otherwise: silently skip
+    // Otherwise: silently strip.
 }
 
 void Compiler::compile_throw(const ThrowStmt& s) {

@@ -343,7 +343,7 @@ void DapServer::launch_script(const std::string& path) {
     auto toks = lx.tokenize();
     Parser pr(std::move(toks), path);
     Program prog = pr.parse();
-    Compiler comp(EngineMode::None);
+    Compiler comp;
     auto chunk = comp.compile(prog, path);
 
     if (lx.has_errors() || pr.has_errors() || comp.has_errors()) {

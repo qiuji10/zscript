@@ -21,7 +21,7 @@ struct CompileError {
 // ---------------------------------------------------------------------------
 class Compiler {
 public:
-    explicit Compiler(EngineMode engine = EngineMode::None);
+    explicit Compiler(TagSet tags = {});
 
     // Compile a full program. Returns the filled Chunk (or empty on error).
     std::unique_ptr<Chunk> compile(const Program& prog, const std::string& filename);
@@ -148,7 +148,7 @@ private:
     void compile_if(const IfStmt& s);
     void compile_while(const WhileStmt& s);
     void compile_for(const ForStmt& s);
-    void compile_engine_block(const EngineBlock& s);
+    void compile_tag_block(const TagBlock& s);
     void compile_match(const MatchStmt& s);
     void compile_throw(const ThrowStmt& s);
     void compile_try_catch(const TryCatchStmt& s);
@@ -187,7 +187,7 @@ private:
     // =========================================================================
     // State
     // =========================================================================
-    EngineMode              engine_    = EngineMode::None;
+    TagSet                  tags_;
     std::unique_ptr<Chunk>  chunk_;
     std::vector<CompileError> errors_;
 

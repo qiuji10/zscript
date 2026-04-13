@@ -138,6 +138,10 @@ add_executable(test_generics tests/test_generics.cpp)
 target_link_libraries(test_generics PRIVATE zscript_core Catch2::Catch2WithMain)
 zscript_discover_tests(test_generics)
 
+add_executable(test_tags tests/test_tags.cpp)
+target_link_libraries(test_tags PRIVATE zscript_core Catch2::Catch2WithMain)
+zscript_discover_tests(test_tags)
+
 # ---------------------------------------------------------------------------
 # Fuzzer (libFuzzer) — opt-in via -DZSCRIPT_FUZZ=ON, requires clang.
 # ---------------------------------------------------------------------------

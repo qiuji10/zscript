@@ -635,7 +635,7 @@ Json LspServer::compute_diagnostics(const std::string& uri, const std::string& t
         return diags;
     }
 
-    Compiler comp(EngineMode::None);
+    Compiler comp;
     comp.compile(prog, uri);
     for (auto& e : comp.errors()) {
         int sev = (e.severity == CompileError::Severity::Warning) ? 2 : 1;
@@ -1064,7 +1064,7 @@ static void walk_stmt_undef(const Stmt* s,
     } else if (auto* fs = dynamic_cast<const ForStmt*>(s)) {
         walk_expr_undef(fs->iterable.get(), known, report);
         walk_stmts_undef(fs->body.stmts, known, report);
-    } else if (auto* eb = dynamic_cast<const EngineBlock*>(s)) {
+    } else if (auto* eb = dynamic_cast<const TagBlock*>(s)) {
         walk_stmts_undef(eb->body.stmts, known, report);
     }
 }
@@ -1228,7 +1228,7 @@ void LspServer::collect_fn_locals(const FnDecl& fn, std::vector<SymInfo>& out,
                 sym.loc    = fs->loc;
                 out.push_back(sym);
                 walk_stmts(fs->body.stmts);
-            } else if (auto* eb = dynamic_cast<const EngineBlock*>(s.get())) {
+            } else if (auto* eb = dynamic_cast<const TagBlock*>(s.get())) {
                 walk_stmts(eb->body.stmts);
             }
         }

@@ -281,8 +281,8 @@ inline void dump_stmt(std::ostream& out, const Stmt* s, int depth) {
         dump_block(out, x->catch_block, depth + 1);
         return;
     }
-    if (auto* x = dynamic_cast<const EngineBlock*>(s)) {
-        out << ind(depth) << "@" << x->engine << "\n";
+    if (auto* x = dynamic_cast<const TagBlock*>(s)) {
+        out << ind(depth) << "@" << x->tag << "\n";
         dump_block(out, x->body, depth + 1);
         return;
     }

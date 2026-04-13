@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace zscript {
@@ -204,6 +205,15 @@ struct Proto {
 };
 
 // ---------------------------------------------------------------------------
+// Compiled annotation — immutable metadata attached to a class declaration.
+// Stored in Chunk (never on the VM heap) so scripts cannot tamper with it.
+// ---------------------------------------------------------------------------
+struct CompiledAnnotation {
+    std::string ns;    // e.g. "unity", "unreal", "scenarioA"
+    std::string name;  // e.g. "component", "uclass" (empty for bare @ns)
+};
+
+// ---------------------------------------------------------------------------
 // Chunk — the top-level compilation unit (one source file)
 // ---------------------------------------------------------------------------
 struct Chunk {
@@ -212,6 +222,10 @@ struct Chunk {
 
     // Owns all Proto objects produced during compilation.
     std::vector<std::unique_ptr<Proto>> all_protos;
+
+    // Annotation metadata: class name → list of @ns.name decorators.
+    // Populated at compile time; not accessible from script code.
+    std::unordered_map<std::string, std::vector<CompiledAnnotation>> annotations;
 
     Proto* new_proto(const std::string& name = "") {
         auto p = std::make_unique<Proto>();
@@ -223,10 +237,25 @@ struct Chunk {
 };
 
 // ---------------------------------------------------------------------------
+// Tag set — controls @tag conditional block stripping at compile time.
+// The host populates this before compiling; a block is emitted only when
+// its tag name is present in the set.  An empty set strips all tag blocks.
+//
+// Tag names must be valid identifiers: [A-Za-z_][A-Za-z0-9_]*
+// IMPORTANT: tags are a compile-time optimization, NOT a security boundary.
+// Never use tags as access-control gates for sensitive operations.
 // ---------------------------------------------------------------------------
-// Engine mode — controls @unity/@unreal block stripping at compile time
-// ---------------------------------------------------------------------------
-enum class EngineMode { None, Unity, Unreal };
+using TagSet = std::unordered_set<std::string>;
+
+// Returns true iff 's' is a valid tag name (same rules as a ZScript identifier).
+// Call this before inserting any host-supplied or user-supplied string into a TagSet.
+inline bool is_valid_tag(const std::string& s) {
+    if (s.empty()) return false;
+    if (!std::isalpha((unsigned char)s[0]) && s[0] != '_') return false;
+    for (char c : s)
+        if (!std::isalnum((unsigned char)c) && c != '_') return false;
+    return true;
+}
 
 // ---------------------------------------------------------------------------
 // .zbc serialization (magic + version + proto tree)

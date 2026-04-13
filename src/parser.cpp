@@ -127,7 +127,7 @@ Program Parser::parse() {
                 peek(2).kind == TokenKind::LBrace) {
                 auto node = std::make_unique<StmtDecl>();
                 node->loc = cur_loc();
-                node->stmt = parse_engine_block_stmt();
+                node->stmt = parse_tag_block_stmt();
                 prog.decls.push_back(std::move(node));
                 continue;
             }
@@ -640,7 +640,7 @@ StmtPtr Parser::parse_stmt() {
         case TokenKind::KwIf:       return parse_if_stmt();
         case TokenKind::KwWhile:    return parse_while_stmt();
         case TokenKind::KwFor:      return parse_for_stmt();
-        case TokenKind::At:         return parse_engine_block_stmt();
+        case TokenKind::At:         return parse_tag_block_stmt();
         case TokenKind::KwMatch:    return parse_match_stmt();
         case TokenKind::KwThrow:    return parse_throw_stmt();
         case TokenKind::KwTry:      return parse_try_catch_stmt();
@@ -851,13 +851,13 @@ StmtPtr Parser::parse_for_stmt() {
 }
 
 // @unity { } / @unreal { }  as a statement
-StmtPtr Parser::parse_engine_block_stmt() {
-    auto stmt = std::make_unique<EngineBlock>();
+StmtPtr Parser::parse_tag_block_stmt() {
+    auto stmt = std::make_unique<TagBlock>();
     stmt->loc = cur_loc();
     expect(TokenKind::At, "expected '@'");
-    const Token& eng = expect(TokenKind::Ident, "expected engine name ('unity' or 'unreal')");
-    stmt->engine = eng.lexeme;
-    stmt->body   = parse_block();
+    const Token& tag = expect(TokenKind::Ident, "expected tag name after '@'");
+    stmt->tag  = tag.lexeme;
+    stmt->body = parse_block();
     return stmt;
 }
 

@@ -276,9 +276,10 @@ struct TryCatchStmt : Stmt {
     Block       catch_block;
 };
 
-// @unity { } / @unreal { } inside a function body
-struct EngineBlock : Stmt {
-    std::string engine;  // "unity" | "unreal"
+// @tag { } conditional block — emitted only when the tag is active at compile time.
+// The tag name is any identifier following '@': @unity, @windows, @scenarioA, etc.
+struct TagBlock : Stmt {
+    std::string tag;   // e.g. "unity", "windows", "scenarioA"
     Block       body;
 };
 

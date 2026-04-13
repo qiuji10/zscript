@@ -66,7 +66,7 @@ private:
     StmtPtr parse_if_stmt();
     StmtPtr parse_while_stmt();
     StmtPtr parse_for_stmt();
-    StmtPtr parse_engine_block_stmt();
+    StmtPtr parse_tag_block_stmt();
     StmtPtr parse_match_stmt();
     StmtPtr parse_throw_stmt();
     StmtPtr parse_try_catch_stmt();

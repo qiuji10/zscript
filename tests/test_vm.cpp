@@ -17,14 +17,14 @@ struct Ctx {
 
     Ctx() { vm.open_stdlib(); }
 
-    bool run(const std::string& src, EngineMode mode = EngineMode::None) {
+    bool run(const std::string& src, TagSet tags = {}) {
         Lexer lexer(src);
         auto tokens = lexer.tokenize();
         if (lexer.has_errors()) return false;
         Parser parser(std::move(tokens));
         Program prog = parser.parse();
         if (parser.has_errors()) return false;
-        Compiler compiler(mode);
+        Compiler compiler(tags);
         chunk = compiler.compile(prog, "<test>");
         if (compiler.has_errors()) return false;
         return vm.execute(*chunk);
@@ -485,23 +485,28 @@ TEST_CASE("table operations", "[vm][tables]") {
 // Engine blocks
 // ---------------------------------------------------------------------------
 
-TEST_CASE("engine block stripping", "[vm][engine]") {
-    SECTION("unity mode runs @unity only") {
+TEST_CASE("tag block stripping", "[vm][tags]") {
+    SECTION("unity tag runs @unity only") {
         Ctx c;
-        REQUIRE(c.run("var x = 0\n@unity { x = 1 }\n@unreal { x = 2 }", EngineMode::Unity));
+        REQUIRE(c.run("var x = 0\n@unity { x = 1 }\n@unreal { x = 2 }", {"unity"}));
         CHECK(c.global("x").as_int() == 1);
     }
-    SECTION("unreal mode runs @unreal only") {
+    SECTION("unreal tag runs @unreal only") {
         Ctx c;
-        REQUIRE(c.run("var x = 0\n@unity { x = 1 }\n@unreal { x = 2 }", EngineMode::Unreal));
+        REQUIRE(c.run("var x = 0\n@unity { x = 1 }\n@unreal { x = 2 }", {"unreal"}));
         CHECK(c.global("x").as_int() == 2);
     }
-    SECTION("none mode runs both") {
+    SECTION("both tags run both blocks") {
         Ctx c;
-        REQUIRE(c.run("var x = 0\n@unity { x = x + 1 }\n@unreal { x = x + 1 }", EngineMode::None));
+        REQUIRE(c.run("var x = 0\n@unity { x = x + 1 }\n@unreal { x = x + 1 }", {"unity", "unreal"}));
         CHECK(c.global("x").as_int() == 2);
     }
-    SECTION("engine block inside function") {
+    SECTION("no tags strips all blocks") {
+        Ctx c;
+        REQUIRE(c.run("var x = 0\n@unity { x = 1 }\n@unreal { x = 2 }"));
+        CHECK(c.global("x").as_int() == 0);
+    }
+    SECTION("tag block inside function") {
         Ctx c;
         REQUIRE(c.run(R"(
             fn update(x: Int) -> Int {
@@ -510,8 +515,13 @@ TEST_CASE("engine block stripping", "[vm][engine]") {
                 return x
             }
             var r = update(0)
-        )", EngineMode::Unity));
+        )", {"unity"}));
         CHECK(c.global("r").as_int() == 10);
+    }
+    SECTION("arbitrary custom tag") {
+        Ctx c;
+        REQUIRE(c.run("var x = 0\n@scenarioA { x = 42 }", {"scenarioA"}));
+        CHECK(c.global("x").as_int() == 42);
     }
 }
 

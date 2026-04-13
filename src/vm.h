@@ -41,8 +41,16 @@ public:
     ~VM();
 
     // --- setup ---
-    void set_engine(EngineMode mode) { engine_ = mode; }
-    EngineMode engine_mode() const   { return engine_; }
+    // Tag-based conditional compilation. Add tags before execute()/load_file().
+    // @tag { } blocks are emitted only when their tag is in the active set.
+    // add_tag() returns false and is a no-op if the name is not a valid identifier.
+    bool           add_tag(const std::string& tag) {
+                       if (!is_valid_tag(tag)) return false;
+                       tags_.insert(tag); return true;
+                   }
+    void           remove_tag(const std::string& tag) { tags_.erase(tag); }
+    bool           has_tag(const std::string& tag) const { return tags_.count(tag) > 0; }
+    const TagSet&  active_tags() const { return tags_; }
 
     void register_function(const std::string& name, NativeFunction::Fn fn);
     void open_stdlib();
@@ -75,6 +83,14 @@ public:
     void  set_global(const std::string& name, Value v);
     Value get_global(const std::string& name) const;
     const std::unordered_map<std::string, Value>& globals() const { return globals_; }
+
+    // --- annotation registry ---
+    // Annotations are populated from Chunk metadata when a chunk is executed.
+    // They are read-only from the host side; scripts have no access to them.
+    const std::vector<CompiledAnnotation>& get_annotations(const std::string& class_name) const;
+    const std::unordered_map<std::string, std::vector<CompiledAnnotation>>& all_annotations() const {
+        return annotations_;
+    }
 
     // --- GC ---
     GC& gc() { return gc_; }
@@ -125,7 +141,8 @@ private:
     void close_upvals_above(uint8_t base); // called when a frame returns
 
     std::unordered_map<std::string, Value> globals_;
-    EngineMode    engine_ = EngineMode::None;
+    TagSet        tags_;
+    std::unordered_map<std::string, std::vector<CompiledAnnotation>> annotations_;
 
     // Type method tables — looked up when GetField is called on a non-table value.
     // Each entry is a native function that expects self as first arg.

@@ -111,7 +111,7 @@ Module* ModuleLoader::load(const std::string& name, VM& vm, std::string& error_m
     }
 
     // Compile
-    Compiler compiler(vm.engine_mode());
+    Compiler compiler(vm.active_tags());
     mod->chunk = compiler.compile(prog, filepath);
     if (compiler.has_errors()) {
         for (auto& e : compiler.errors())

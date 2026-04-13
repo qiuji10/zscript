@@ -259,26 +259,34 @@ TEST_CASE("for statement", "[parser][stmts]") {
     }
 }
 
-TEST_CASE("engine block statement", "[parser][stmts]") {
+TEST_CASE("tag block statement", "[parser][stmts]") {
     SECTION("empty blocks") {
         auto prog = parse("fn f() -> nil { @unity { } @unreal { } }");
         auto* fn  = as<FnDecl>(prog.decls[0].get());
         REQUIRE(fn != nullptr);
         REQUIRE(fn->body.stmts.size() == 2);
-        auto* eb1 = as<EngineBlock>(fn->body.stmts[0].get());
+        auto* eb1 = as<TagBlock>(fn->body.stmts[0].get());
         REQUIRE(eb1 != nullptr);
-        CHECK(eb1->engine == "unity");
-        auto* eb2 = as<EngineBlock>(fn->body.stmts[1].get());
+        CHECK(eb1->tag == "unity");
+        auto* eb2 = as<TagBlock>(fn->body.stmts[1].get());
         REQUIRE(eb2 != nullptr);
-        CHECK(eb2->engine == "unreal");
+        CHECK(eb2->tag == "unreal");
     }
     SECTION("with body stmts") {
         auto prog = parse("fn f() -> nil { @unity { x = 1  y = 2 } }");
         auto* fn  = as<FnDecl>(prog.decls[0].get());
         REQUIRE(fn != nullptr);
-        auto* eb = as<EngineBlock>(fn->body.stmts[0].get());
+        auto* eb = as<TagBlock>(fn->body.stmts[0].get());
         REQUIRE(eb != nullptr);
         CHECK(eb->body.stmts.size() == 2);
+    }
+    SECTION("arbitrary tag name") {
+        auto prog = parse("fn f() -> nil { @scenarioA { x = 1 } }");
+        auto* fn  = as<FnDecl>(prog.decls[0].get());
+        REQUIRE(fn != nullptr);
+        auto* eb = as<TagBlock>(fn->body.stmts[0].get());
+        REQUIRE(eb != nullptr);
+        CHECK(eb->tag == "scenarioA");
     }
 }
 
@@ -922,12 +930,12 @@ fn UpdatePlayer(player: Movable) -> nil {
     REQUIRE(fn != nullptr);
     CHECK(fn->name == "UpdatePlayer");
     CHECK(fn->body.stmts.size() == 3);
-    auto* unity  = as<EngineBlock>(fn->body.stmts[1].get());
+    auto* unity  = as<TagBlock>(fn->body.stmts[1].get());
     REQUIRE(unity != nullptr);
-    CHECK(unity->engine == "unity");
-    auto* unreal = as<EngineBlock>(fn->body.stmts[2].get());
+    CHECK(unity->tag == "unity");
+    auto* unreal = as<TagBlock>(fn->body.stmts[2].get());
     REQUIRE(unreal != nullptr);
-    CHECK(unreal->engine == "unreal");
+    CHECK(unreal->tag == "unreal");
 }
 
 TEST_CASE("spawn enemies fn with nested for + engine blocks", "[parser][integration]") {
