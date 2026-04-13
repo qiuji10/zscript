@@ -156,6 +156,10 @@ if(ZSCRIPT_FUZZ)
             "  Windows     : -DCMAKE_CXX_COMPILER=\"C:/Program Files/LLVM/bin/clang++.exe\"\n"
             "  (got: ${CMAKE_CXX_COMPILER_ID})")
     endif()
+    # zscript_core must also be compiled with ASAN so the annotate_string
+    # /failifmismatch flag agrees between the library and the fuzzer object.
+    target_compile_options(zscript_core PRIVATE -fsanitize=address)
+
     add_executable(fuzz_lexer_parser fuzz/fuzz_lexer_parser.cpp)
     target_link_libraries(fuzz_lexer_parser PRIVATE zscript_core)
     # Use -fsanitize=fuzzer,address on all platforms.
