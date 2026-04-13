@@ -50,7 +50,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Compile function calls including generic calls
 - [x] Compile class instantiation and method dispatch
 - [x] Compile null safety: `?.` emits nil-check branch, `!.` emits force-unwrap + trap
-- [x] Compile `@unity` / `@unreal` blocks: strip based on `vm.setEngine()` setting
+- [x] Compile `@tag { }` blocks: strip at compile time based on active `TagSet`; any identifier valid as a tag (`@windows`, `@vulkan`, `@scenarioA`, etc.)
 - [x] Compile string interpolation to concat ops
 - [x] Compile delegate `+=` / `-=` to delegate object calls
 - [x] Emit source maps (optional, for debugger)
@@ -65,7 +65,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] String interning
 - [x] Table (hash map) implementation
 - [x] Function objects + closures (upvalue capture)
-- [x] `vm.setEngine(Engine::Unreal | Engine::Unity)` — engine mode at init
+- [x] `vm.add_tag(name)` / `vm.remove_tag(name)` / `vm.has_tag(name)` — generic tag set replaces engine mode; validated identifiers only
 - [x] `vm.load_file(path)` — load and execute a `.zs` script
 - [x] `vm.call(name, args...)` — call a named script function from C++
 - [x] Re-entrant `invoke_from_native` for HOF calls from native C++ functions
@@ -179,7 +179,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] `zsc run <file.zs>` — compile + execute
 - [x] `zsc check <file.zs>` — compile only, report errors
 - [x] `zsc disasm <file.zbc>` — disassemble bytecode
-- [x] `--engine=unreal|unity|none` flag (sets engine mode for conditional stripping)
+- [x] `--tag=<name>` flag (repeatable; activates a `@tag { }` block; replaces `--engine=`)
 - [x] Human-readable error output with line/column
 - [x] Shortcut: `zsc <file.zs>` acts as `zsc run <file.zs>`
 
