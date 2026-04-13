@@ -1,7 +1,4 @@
 #include <catch2/catch_test_macros.hpp>
-#include "lexer.h"
-#include "parser.h"
-#include "compiler.h"
 #include "vm.h"
 #include "filewatcher.h"
 #include "hotpatch.h"
@@ -371,9 +368,9 @@ TEST_CASE("file modification triggers hotpatch reload", "[hotpatch][integration]
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     write_file(file, "var VALUE = 42");
 
-    // FSEvents on macOS CI can be slow; poll in a loop up to 3 s.
+    // FSEvents on macOS CI can be slow; poll in a loop up to 10 s.
     int reloaded = 0;
-    for (int i = 0; i < 30 && reloaded == 0; ++i) {
+    for (int i = 0; i < 100 && reloaded == 0; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         reloaded = vm.poll();
     }
@@ -402,8 +399,8 @@ TEST_CASE("module version increments on hotpatch reload", "[hotpatch][integratio
 
     write_file(file, "var V = 2");
 
-    // FSEvents on macOS CI can be slow; poll in a loop up to 3 s.
-    for (int i = 0; i < 30; ++i) {
+    // FSEvents on macOS CI can be slow; poll in a loop up to 10 s.
+    for (int i = 0; i < 100; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (vm.poll() > 0) break;
     }

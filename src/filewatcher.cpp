@@ -52,7 +52,7 @@ public:
             &ctx,
             paths,
             kFSEventStreamEventIdSinceNow,
-            0.05,   // 50ms latency hint (debounce is done at FileWatcher level too)
+            0.0,    // no extra latency — debounce is handled at FileWatcher level
             kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
         );
         CFRelease(paths);
