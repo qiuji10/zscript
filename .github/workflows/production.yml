@@ -1,0 +1,42 @@
+name: Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      rng_seed:
+        description: "Catch2 RNG seed to pass to tests, e.g. 1150817212"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  build:
+    name: Release Validation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    env:
+      ZSCRIPT_TEST_RNG_SEED: ${{ github.event_name == 'workflow_dispatch' && inputs.rng_seed || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache build dependencies
+        uses: actions/cache@v5
+        with:
+          path: build/_deps
+          key: deps-${{ matrix.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ matrix.os }}-
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DZSCRIPT_TEST_RNG_SEED="${{ env.ZSCRIPT_TEST_RNG_SEED }}"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure --parallel 4
