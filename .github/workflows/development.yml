@@ -27,6 +27,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Resolve test RNG seed
+        shell: bash
+        run: |
+          if [ -n "${ZSCRIPT_TEST_RNG_SEED}" ]; then
+            seed="${ZSCRIPT_TEST_RNG_SEED}"
+            source="workflow input"
+          else
+            seed="${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+            source="generated from run context"
+          fi
+          echo "Resolved Catch2 RNG seed: ${seed} (${source})"
+          echo "RESOLVED_TEST_RNG_SEED=${seed}" >> "$GITHUB_ENV"
+
       - name: Cache build dependencies
         uses: actions/cache@v5
         with:
@@ -35,13 +48,15 @@ jobs:
           restore-keys: deps-${{ matrix.os }}-
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DZSCRIPT_TEST_RNG_SEED="${{ env.ZSCRIPT_TEST_RNG_SEED }}"
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DZSCRIPT_TEST_RNG_SEED="${{ env.RESOLVED_TEST_RNG_SEED }}"
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure --parallel 4
+        run: |
+          echo "Running ctest with Catch2 RNG seed: ${{ env.RESOLVED_TEST_RNG_SEED }}"
+          ctest --test-dir build -C Release --output-on-failure --parallel 4
 
   fuzz:
     name: Fuzzer (${{ matrix.os }})

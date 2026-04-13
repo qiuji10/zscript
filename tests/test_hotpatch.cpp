@@ -370,9 +370,13 @@ TEST_CASE("file modification triggers hotpatch reload", "[hotpatch][integration]
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     write_file(file, "var VALUE = 42");
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-    int reloaded = vm.poll();
+    // FSEvents on macOS CI can be slow; poll in a loop up to 3 s.
+    int reloaded = 0;
+    for (int i = 0; i < 30 && reloaded == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        reloaded = vm.poll();
+    }
     CHECK(reloaded >= 1);
     CHECK(vm.get_global("VALUE").as_int() == 42);
     rm_rf(dir);
@@ -397,8 +401,12 @@ TEST_CASE("module version increments on hotpatch reload", "[hotpatch][integratio
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     write_file(file, "var V = 2");
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    vm.poll();
+
+    // FSEvents on macOS CI can be slow; poll in a loop up to 3 s.
+    for (int i = 0; i < 30; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (vm.poll() > 0) break;
+    }
 
     Module* mod2 = vm.loader().find("versmod");
     REQUIRE(mod2 != nullptr);
