@@ -325,7 +325,11 @@ TEST_CASE("json.decode int", "[stdlib][json]") {
 
 TEST_CASE("json.decode string", "[stdlib][json]") {
     Ctx c;
-    REQUIRE(c.run(R"(var v = json.decode("\"hello\""))"));
+    // Round-trip: encode produces a JSON string literal, decode recovers the value.
+    REQUIRE(c.run(R"(
+        let encoded = json.encode("hello")
+        var v = json.decode(encoded)
+    )"));
     CHECK(c.g("v").as_string() == "hello");
 }
 

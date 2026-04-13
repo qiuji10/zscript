@@ -272,7 +272,7 @@ TEST_CASE("mixed positional then named args", "[functions][named_args]") {
     CHECK(c.g("r").as_int() == 123);
 }
 
-TEST_CASE("named args with default values — skip middle param", "[functions][named_args]") {
+TEST_CASE("named args with default values - skip middle param", "[functions][named_args]") {
     Ctx c;
     REQUIRE(c.run(R"(
         fn build(w, h = 10, d = 1) { return w * h * d }
