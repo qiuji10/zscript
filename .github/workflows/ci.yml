@@ -44,3 +44,37 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure --parallel 4
+
+  fuzz:
+    name: Fuzzer (ubuntu / clang)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install clang
+        run: sudo apt-get install -y clang
+
+      - name: Cache build dependencies
+        uses: actions/cache@v5
+        with:
+          path: build-fuzz/_deps
+          key: deps-fuzz-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-fuzz-
+
+      - name: Configure
+        run: |
+          cmake -B build-fuzz \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DZSCRIPT_FUZZ=ON
+
+      - name: Build fuzzer
+        run: cmake --build build-fuzz --target fuzz_lexer_parser --parallel
+
+      - name: Run fuzzer (30 s smoke run)
+        run: |
+          ./build-fuzz/fuzz_lexer_parser fuzz/corpus \
+            -max_len=4096 \
+            -timeout=5 \
+            -max_total_time=30 \
+            -print_final_stats=1

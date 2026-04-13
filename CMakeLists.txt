@@ -123,3 +123,18 @@ zscript_discover_tests(test_delegates)
 add_executable(test_generics tests/test_generics.cpp)
 target_link_libraries(test_generics PRIVATE zscript_core Catch2::Catch2WithMain)
 zscript_discover_tests(test_generics)
+
+# ---------------------------------------------------------------------------
+# Fuzzer (libFuzzer) — opt-in via -DZSCRIPT_FUZZ=ON, requires clang.
+# ---------------------------------------------------------------------------
+option(ZSCRIPT_FUZZ "Build libFuzzer targets (requires clang with -fsanitize=fuzzer)" OFF)
+if(ZSCRIPT_FUZZ)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "ZSCRIPT_FUZZ requires clang (CMAKE_CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID})")
+    endif()
+    add_executable(fuzz_lexer_parser fuzz/fuzz_lexer_parser.cpp)
+    target_link_libraries(fuzz_lexer_parser PRIVATE zscript_core)
+    target_compile_options(fuzz_lexer_parser PRIVATE -fsanitize=fuzzer,address -g)
+    target_link_options   (fuzz_lexer_parser PRIVATE -fsanitize=fuzzer,address)
+    message(STATUS "Fuzzer target: fuzz_lexer_parser")
+endif()

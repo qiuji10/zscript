@@ -215,7 +215,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
   - [x] `os`: `getcwd`, `chdir`, `mkdir`, `rmdir`, `listdir`, `getenv`, `time`, `clock`, `platform`, `exit`; `os.path`: `join`, `dirname`, `basename`, `stem`, `ext`, `abs`, `exists`, `is_file`, `is_dir`
 - [x] Sandbox approach: `open_io()` / `open_os()` are separate opt-in calls — not included by `open_stdlib()`; host controls file/OS access
 - [x] Test suite: one test file per language feature (lexer, parser, vm, operators, control_flow, functions, classes, collections, closures, error_handling, stdlib, gc, hotpatch)
-- [ ] Fuzzer for lexer + parser
+- [x] Fuzzer for lexer + parser — libFuzzer harness in `fuzz/`, 20-seed corpus, CI 30 s smoke run
 - [x] CI: build matrix (Windows / Linux / macOS)
 - [x] Decide: GC algorithm — mark-sweep (implemented)
 - [x] Decide: hotpatch granularity — file-level (implemented)
