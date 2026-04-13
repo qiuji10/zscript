@@ -180,11 +180,15 @@ int HotpatchManager::apply_pending() {
 
     int count = 0;
     for (auto& pr : batch) {
-        // Execute the new module in the VM to populate its exports
-        bool ok = vm_.execute_module(*pr.new_module->chunk, pr.module_name);
+        // Execute the new module in an isolated namespace, then merge its
+        // exports into the live VM globals once the reload succeeds.
+        std::string error_msg;
+        bool ok = vm_.execute_module(*pr.new_module, error_msg);
         if (!ok) {
             std::cerr << "[hotpatch] Runtime error reloading " << pr.module_name
-                      << ": " << vm_.last_error().message << "\n";
+                      << ": "
+                      << (error_msg.empty() ? vm_.last_error().message : error_msg)
+                      << "\n";
             continue;
         }
 
@@ -194,6 +198,10 @@ int HotpatchManager::apply_pending() {
         if (on_reload_fn.is_closure() || on_reload_fn.is_native()) {
             // Pass nil as old state for now (full migration is Phase 5+)
             vm_.call_value(on_reload_fn, {Value::nil()});
+        }
+
+        for (auto& [k, v] : pr.new_module->exports) {
+            vm_.set_global(k, v);
         }
 
         // Swap the module in the loader registry
