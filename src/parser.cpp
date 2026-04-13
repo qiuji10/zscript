@@ -69,6 +69,11 @@ ParseError Parser::make_error(const char* msg) {
 }
 
 void Parser::record_error(const char* msg) {
+    if (errors_.size() >= 200) {
+        // Too many errors — stop accumulating to prevent OOM on malformed input.
+        // Throw so the top-level catch in parse() calls synchronize() and skips ahead.
+        throw std::runtime_error("too many parse errors");
+    }
     errors_.push_back(make_error(msg));
 }
 
