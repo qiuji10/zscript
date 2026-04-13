@@ -216,7 +216,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Sandbox approach: `open_io()` / `open_os()` are separate opt-in calls — not included by `open_stdlib()`; host controls file/OS access
 - [x] Test suite: one test file per language feature (lexer, parser, vm, operators, control_flow, functions, classes, collections, closures, error_handling, stdlib, gc, hotpatch)
 - [ ] Fuzzer for lexer + parser
-- [ ] CI: build matrix (Windows / Linux / macOS)
+- [x] CI: build matrix (Windows / Linux / macOS)
 - [x] Decide: GC algorithm — mark-sweep (implemented)
 - [x] Decide: hotpatch granularity — file-level (implemented)
 - [x] Decide: bytecode portability — binary + magic header (implemented)
