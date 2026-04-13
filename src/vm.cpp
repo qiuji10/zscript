@@ -1630,6 +1630,21 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
         }
     }
 
+    // ── __call metamethod ─────────────────────────────────────────────────────
+    if (callee.is_table()) {
+        Value call_mm = callee.as_table()->get("__call");
+        if (call_mm.is_closure() || call_mm.is_native()) {
+            std::vector<Value> args;
+            args.push_back(callee); // self as first arg
+            for (uint8_t i = 0; i < num_args; ++i)
+                args.push_back(regs_[abs_base + 1 + i]);
+            auto results = invoke_from_native(call_mm, args);
+            for (uint8_t i = 0; i < num_results; ++i)
+                regs_[abs_base + i] = (i < results.size()) ? results[i] : Value::nil();
+            return true;
+        }
+    }
+
     // ── Delegate call ─────────────────────────────────────────────────────────
     if (callee.is_delegate()) {
         // Snapshot handlers and args before any register writes.
@@ -1873,12 +1888,19 @@ bool VM::run(size_t stop_depth) {
                         if (!found.is_nil()) {
                             R(A) = std::move(found);
                         } else {
-                            // Fall back to table type methods (e.g. arr.push)
-                            auto it = table_methods_.find(field);
-                            if (it != table_methods_.end())
-                                R(A) = make_bound_method(it->second, obj_snap);
-                            else
-                                R(A) = Value::nil();
+                            // __index metamethod takes priority over table_methods_
+                            Value idx_mm = obj_snap.as_table()->get("__index");
+                            if (idx_mm.is_closure() || idx_mm.is_native()) {
+                                auto res = invoke_from_native(idx_mm, {obj_snap, Value::from_string(field)});
+                                R(A) = res.empty() ? Value::nil() : res[0];
+                            } else {
+                                // Fall back to table type methods (e.g. arr.push)
+                                auto it = table_methods_.find(field);
+                                if (it != table_methods_.end())
+                                    R(A) = make_bound_method(it->second, obj_snap);
+                                else
+                                    R(A) = Value::nil();
+                            }
                         }
                     } else if (obj_snap.tag == Value::Tag::String) {
                         auto it = string_methods_.find(field);
@@ -1898,29 +1920,48 @@ bool VM::run(size_t stop_depth) {
                     // Encoding: A=obj_reg, upper8(Bx)=name_k, lower8(Bx)=val_reg
                     uint8_t  name_k = (uint8_t)((Bx >> 8) & 0xFF);
                     uint8_t  val_r  = (uint8_t)(Bx & 0xFF);
-                    Value& obj = R(A);
-                    if (!obj.is_table()) runtime_error("attempt to set field on non-table");
+                    Value obj_snap = R(A); // snapshot — invoke_from_native may mutate regs_
+                    if (!obj_snap.is_table()) runtime_error("attempt to set field on non-table");
                     const std::string& field = K(name_k).as_string();
-                    obj.as_table()->set(field, R(val_r));
+                    auto* tbl = obj_snap.as_table();
+                    // Fire __newindex only for keys absent from the table
+                    if (tbl->hash.count(field) == 0) {
+                        Value newi_mm = tbl->get("__newindex");
+                        if (newi_mm.is_closure() || newi_mm.is_native()) {
+                            Value val_snap = R(val_r);
+                            invoke_from_native(newi_mm, {obj_snap, Value::from_string(field), val_snap});
+                            break;
+                        }
+                    }
+                    tbl->set(field, R(val_r));
                     break;
                 }
 
                 case Op::GetIndex: {
-                    Value& obj = R(B);
-                    Value& idx = R(C);
-                    if (obj.is_table()) {
-                        auto* tbl = obj.as_table();
+                    Value obj_snap = R(B); // snapshot — invoke_from_native may mutate regs_
+                    Value idx_snap = R(C);
+                    if (obj_snap.is_table()) {
+                        auto* tbl = obj_snap.as_table();
                         auto rs = tbl->hash.find("__range_start__");
-                        if (rs != tbl->hash.end() && idx.is_int()) {
+                        if (rs != tbl->hash.end() && idx_snap.is_int()) {
                             // Range table: R[A] = start + idx
                             int64_t start = rs->second.as_int();
-                            R(A) = Value::from_int(start + idx.as_int());
-                        } else if (idx.is_int()) {
-                            R(A) = tbl->get_index(idx.as_int());
-                        } else if (idx.is_string()) {
-                            R(A) = tbl->get(idx.as_string());
+                            R(A) = Value::from_int(start + idx_snap.as_int());
                         } else {
-                            R(A) = Value::nil();
+                            Value found;
+                            if (idx_snap.is_int())         found = tbl->get_index(idx_snap.as_int());
+                            else if (idx_snap.is_string()) found = tbl->get(idx_snap.as_string());
+                            if (!found.is_nil()) {
+                                R(A) = std::move(found);
+                            } else {
+                                Value idx_mm = tbl->get("__index");
+                                if (idx_mm.is_closure() || idx_mm.is_native()) {
+                                    auto res = invoke_from_native(idx_mm, {obj_snap, idx_snap});
+                                    R(A) = res.empty() ? Value::nil() : res[0];
+                                } else {
+                                    R(A) = Value::nil();
+                                }
+                            }
                         }
                     } else {
                         runtime_error("attempt to index non-table value");
@@ -1929,12 +1970,24 @@ bool VM::run(size_t stop_depth) {
                 }
 
                 case Op::SetIndex: {
-                    Value& obj = R(A);
-                    Value& idx = R(B);
-                    Value& val = R(C);
-                    if (!obj.is_table()) runtime_error("attempt to index non-table value");
-                    if (idx.is_int())    obj.as_table()->set_index(idx.as_int(), val);
-                    else if (idx.is_string()) obj.as_table()->set(idx.as_string(), val);
+                    Value obj_snap = R(A); // snapshot — invoke_from_native may mutate regs_
+                    Value idx_snap = R(B);
+                    Value val_snap = R(C);
+                    if (!obj_snap.is_table()) runtime_error("attempt to index non-table value");
+                    auto* tbl = obj_snap.as_table();
+                    // Fire __newindex only for keys absent from the table
+                    bool key_exists = idx_snap.is_int()
+                        ? !tbl->get_index(idx_snap.as_int()).is_nil()
+                        : (idx_snap.is_string() && tbl->hash.count(idx_snap.as_string()) > 0);
+                    if (!key_exists) {
+                        Value newi_mm = tbl->get("__newindex");
+                        if (newi_mm.is_closure() || newi_mm.is_native()) {
+                            invoke_from_native(newi_mm, {obj_snap, idx_snap, val_snap});
+                            break;
+                        }
+                    }
+                    if (idx_snap.is_int())         tbl->set_index(idx_snap.as_int(), val_snap);
+                    else if (idx_snap.is_string()) tbl->set(idx_snap.as_string(), val_snap);
                     break;
                 }
 
@@ -2053,12 +2106,32 @@ bool VM::run(size_t stop_depth) {
                 }
 
                 // --- comparison ---
-                case Op::Eq:
-                    R(A) = Value::from_bool(R(B) == R(C));
+                case Op::Eq: {
+                    Value lv = R(B); Value rv = R(C); // snapshot for invoke safety
+                    if (lv.is_table() && rv.is_table()) {
+                        Value eq_mm = lv.as_table()->get("__eq");
+                        if (eq_mm.is_closure() || eq_mm.is_native()) {
+                            auto res = invoke_from_native(eq_mm, {lv, rv});
+                            R(A) = Value::from_bool(!res.empty() && res[0].truthy());
+                            break;
+                        }
+                    }
+                    R(A) = Value::from_bool(lv == rv);
                     break;
-                case Op::Ne:
-                    R(A) = Value::from_bool(R(B) != R(C));
+                }
+                case Op::Ne: {
+                    Value lv = R(B); Value rv = R(C); // snapshot for invoke safety
+                    if (lv.is_table() && rv.is_table()) {
+                        Value eq_mm = lv.as_table()->get("__eq");
+                        if (eq_mm.is_closure() || eq_mm.is_native()) {
+                            auto res = invoke_from_native(eq_mm, {lv, rv});
+                            R(A) = Value::from_bool(res.empty() || !res[0].truthy());
+                            break;
+                        }
+                    }
+                    R(A) = Value::from_bool(lv != rv);
                     break;
+                }
                 case Op::Lt: {
                     Value& lv = R(B); Value& rv = R(C);
                     if (lv.is_int() && rv.is_int())

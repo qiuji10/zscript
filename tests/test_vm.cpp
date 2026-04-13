@@ -709,3 +709,123 @@ TEST_CASE("raw string len via # operator", "[vm][raw_string]") {
     REQUIRE(c.run("var n = #`hello`"));
     CHECK(c.global("n").as_int() == 5);
 }
+
+// ---------------------------------------------------------------------------
+// Metamethod tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE("__index metamethod fires on missing field", "[vm][metamethod]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var proxy = {}
+        proxy.__index = fn(tbl, key) {
+            if key == "x" { return 42 }
+            return nil
+        }
+        var result = proxy.x
+    )"));
+    CHECK(c.global("result").as_int() == 42);
+}
+
+TEST_CASE("__index does not fire when field exists", "[vm][metamethod]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var proxy = {}
+        proxy.x = 10
+        proxy.__index = fn(tbl, key) { return 99 }
+        var result = proxy.x
+    )"));
+    CHECK(c.global("result").as_int() == 10);
+}
+
+TEST_CASE("__newindex metamethod fires on absent field assignment", "[vm][metamethod]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var log = {}
+        var proxy = {}
+        proxy.__newindex = fn(tbl, key, value) {
+            log.key = key
+            log.value = value
+        }
+        proxy.score = 99
+    )"));
+    CHECK(c.global("log").as_table()->get("key").as_string() == "score");
+    CHECK(c.global("log").as_table()->get("value").as_int() == 99);
+}
+
+TEST_CASE("__newindex does not fire when field already exists", "[vm][metamethod]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var fired = false
+        var proxy = {}
+        proxy.x = 1
+        proxy.__newindex = fn(tbl, key, value) { fired = true }
+        proxy.x = 2
+    )"));
+    CHECK(c.global("fired").as_bool() == false);
+    CHECK(c.global("proxy").as_table()->get("x").as_int() == 2);
+}
+
+TEST_CASE("__call metamethod enables calling a table", "[vm][metamethod]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var Vec3 = {}
+        Vec3.__call = fn(tbl, x, y, z) {
+            var v = {}
+            v.x = x
+            v.y = y
+            v.z = z
+            return v
+        }
+        var v = Vec3(1, 2, 3)
+        var rx = v.x
+        var ry = v.y
+        var rz = v.z
+    )"));
+    CHECK(c.global("rx").as_int() == 1);
+    CHECK(c.global("ry").as_int() == 2);
+    CHECK(c.global("rz").as_int() == 3);
+}
+
+TEST_CASE("__eq metamethod used for == comparison", "[vm][metamethod]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var eq_fn = fn(a, b) { return a.id == b.id }
+        var a = {}
+        a.id = 5
+        a.__eq = eq_fn
+        var b = {}
+        b.id = 5
+        b.__eq = eq_fn
+        var same = a == b
+        var diff_b = {}
+        diff_b.id = 9
+        diff_b.__eq = eq_fn
+        var diff = a == diff_b
+    )"));
+    CHECK(c.global("same").as_bool() == true);
+    CHECK(c.global("diff").as_bool() == false);
+}
+
+TEST_CASE("__gc hook fires when table is collected", "[vm][metamethod]") {
+    bool fired = false;
+    {
+        VM vm;
+        vm.open_stdlib();
+        // Register a native that sets up the gc_hook
+        vm.register_function("make_proxy", [&](std::vector<Value> args) -> std::vector<Value> {
+            Value tbl = Value::from_table();
+            tbl.as_table()->gc_hook = [&fired]() { fired = true; };
+            return {tbl};
+        });
+        Lexer lexer("var p = make_proxy()  p = nil");
+        auto tokens = lexer.tokenize();
+        Parser parser(std::move(tokens));
+        auto prog = parser.parse();
+        Compiler compiler;
+        auto chunk = compiler.compile(prog, "<test>");
+        vm.execute(*chunk);
+        vm.gc_collect();
+    }
+    CHECK(fired == true);
+}

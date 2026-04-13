@@ -5,7 +5,6 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <variant>
 #include <vector>
 
 namespace zscript {
@@ -40,6 +39,13 @@ struct ZTable : GcObject {
     std::vector<Value>                         array;  // integer keys 1..n
     std::unordered_map<std::string, Value>     hash;   // string keys
     // (other key types can be added for Phase 3)
+
+    // Optional finalizer called when this table is destroyed.
+    // Used by C++ / C# bindings to release object pool entries when a proxy
+    // table is garbage collected.
+    std::function<void()> gc_hook;
+
+    ~ZTable() { if (gc_hook) gc_hook(); }
 
     Value  get(const std::string& key) const;
     void   set(const std::string& key, Value val);
