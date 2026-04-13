@@ -270,7 +270,7 @@ DeclPtr Parser::parse_class_decl(std::vector<Annotation> annots) {
 
     expect(TokenKind::LBrace, "expected '{' to open class body");
 
-    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof) && !error_limit_hit_) {
         auto member_annots = parse_annotations();
         bool is_static = match(TokenKind::KwStatic);
         if (check(TokenKind::KwFn)) {
@@ -309,7 +309,7 @@ DeclPtr Parser::parse_trait_decl(std::vector<Annotation> annots) {
 
     expect(TokenKind::LBrace, "expected '{' to open trait body");
 
-    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof) && !error_limit_hit_) {
         auto member_annots = parse_annotations();
         if (check(TokenKind::KwFn)) {
             // Trait method — body is optional; if no '{', it's abstract.
@@ -361,7 +361,7 @@ DeclPtr Parser::parse_impl_decl(std::vector<Annotation> annots) {
 
     expect(TokenKind::LBrace, "expected '{' to open impl body");
 
-    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof) && !error_limit_hit_) {
         auto member_annots = parse_annotations();
         if (check(TokenKind::KwFn)) {
             node->members.push_back(parse_fn_decl(std::move(member_annots)));
@@ -447,7 +447,7 @@ DeclPtr Parser::parse_prop_decl(std::vector<Annotation> annots) {
 
     if (check(TokenKind::LBrace)) {
         advance(); // consume '{'
-        while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+        while (!check(TokenKind::RBrace) && !check(TokenKind::Eof) && !error_limit_hit_) {
             PropAccessor acc;
             acc.loc = cur_loc();
             if (!check(TokenKind::Ident)) {
@@ -541,7 +541,7 @@ DeclPtr Parser::parse_enum_decl(std::vector<Annotation> annots) {
     expect(TokenKind::LBrace, "expected '{' after enum name");
 
     int64_t next_val = 0;
-    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof) && !error_limit_hit_) {
         EnumDecl::Variant v;
         v.name = expect(TokenKind::Ident, "expected variant name").lexeme;
         if (match(TokenKind::Assign)) {
@@ -617,7 +617,7 @@ Block Parser::parse_block() {
     Block b;
     b.loc = cur_loc();
     expect(TokenKind::LBrace, "expected '{'");
-    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof) && !error_limit_hit_) {
         try {
             b.stmts.push_back(parse_stmt());
         } catch (...) {
@@ -699,7 +699,7 @@ StmtPtr Parser::parse_destructure_stmt(bool is_let, bool is_global) {
     if (check(TokenKind::LBracket)) {
         stmt->kind = DestructureStmt::Kind::Array;
         advance(); // consume '['
-        while (!check(TokenKind::RBracket) && !check(TokenKind::Eof)) {
+        while (!check(TokenKind::RBracket) && !check(TokenKind::Eof) && !error_limit_hit_) {
             DestructureStmt::Binding b;
             if (check(TokenKind::DotDotDot)) {
                 advance(); // consume '...'
@@ -718,7 +718,7 @@ StmtPtr Parser::parse_destructure_stmt(bool is_let, bool is_global) {
         // Table destructuring: {x, y}  or  {fieldName: varName}
         stmt->kind = DestructureStmt::Kind::Table;
         advance(); // consume '{'
-        while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+        while (!check(TokenKind::RBrace) && !check(TokenKind::Eof) && !error_limit_hit_) {
             DestructureStmt::Binding b;
             b.key  = expect(TokenKind::Ident, "expected field name").lexeme;
             b.name = b.key;
@@ -868,7 +868,7 @@ StmtPtr Parser::parse_match_stmt() {
     stmt->subject = parse_expr();
     expect(TokenKind::LBrace, "expected '{' after match subject");
 
-    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+    while (!check(TokenKind::RBrace) && !check(TokenKind::Eof) && !error_limit_hit_) {
         MatchArm arm;
         // wildcard: _
         if (check(TokenKind::Ident) && peek().lexeme == "_") {
@@ -1374,7 +1374,7 @@ ExprPtr Parser::parse_primary() {
             advance(); // consume '{'
             auto node = std::make_unique<TableExpr>();
             node->loc = loc;
-            while (!check(TokenKind::RBrace) && !check(TokenKind::Eof)) {
+            while (!check(TokenKind::RBrace) && !check(TokenKind::Eof) && !error_limit_hit_) {
                 TableExpr::Field field;
                 if (check(TokenKind::LitString)) {
                     field.key = advance().lexeme; // raw string value
@@ -1396,7 +1396,7 @@ ExprPtr Parser::parse_primary() {
         advance(); // consume '['
         auto node = std::make_unique<ArrayExpr>();
         node->loc = loc;
-        while (!check(TokenKind::RBracket) && !check(TokenKind::Eof)) {
+        while (!check(TokenKind::RBracket) && !check(TokenKind::Eof) && !error_limit_hit_) {
             node->elements.push_back(parse_expr());
             if (!match(TokenKind::Comma)) break;
         }

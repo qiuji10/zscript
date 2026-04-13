@@ -43,7 +43,7 @@ struct TmpDir {
             std::chrono::steady_clock::now().time_since_epoch().count()));
         fs::create_directories(path);
     }
-    ~TmpDir() { fs::remove_all(path); }
+    ~TmpDir() { std::error_code ec; fs::remove_all(path, ec); } // must not throw from dtor
     std::string str() const { return path.string(); }
     std::string file(const std::string& name) const { return (path / name).string(); }
 };
