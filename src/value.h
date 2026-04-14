@@ -11,6 +11,7 @@ namespace zscript {
 
 struct Proto;
 struct VM;
+struct ZCoroutine; // defined in vm.h after CallFrame / TryFrame
 
 // ---------------------------------------------------------------------------
 // GC object header (Phase 3: GC will traverse these)
@@ -99,6 +100,7 @@ struct Value {
         Closure,
         Native,
         Delegate,
+        Coroutine,
     };
 
     Tag tag = Tag::Nil;
@@ -122,6 +124,7 @@ struct Value {
     std::shared_ptr<ZClosure>         closure_ptr;
     std::shared_ptr<NativeFunction>   native_ptr;
     std::shared_ptr<ZDelegate>        delegate_ptr;
+    std::shared_ptr<ZCoroutine>       coroutine_ptr;
 
     // --- constructors ---
     Value() : tag(Tag::Nil) { i = 0; }
@@ -161,19 +164,25 @@ struct Value {
         x.delegate_ptr = std::make_shared<ZDelegate>();
         return x;
     }
+    static Value from_coroutine(std::shared_ptr<ZCoroutine> co) {
+        Value x; x.tag = Tag::Coroutine;
+        x.coroutine_ptr = std::move(co);
+        return x;
+    }
 
     // --- type queries ---
-    bool is_nil()      const { return tag == Tag::Nil; }
-    bool is_bool()     const { return tag == Tag::Bool; }
-    bool is_int()      const { return tag == Tag::Int; }
-    bool is_float()    const { return tag == Tag::Float; }
-    bool is_number()   const { return tag == Tag::Int || tag == Tag::Float; }
-    bool is_string()   const { return tag == Tag::String; }
-    bool is_table()    const { return tag == Tag::Table; }
-    bool is_closure()  const { return tag == Tag::Closure; }
-    bool is_native()   const { return tag == Tag::Native; }
-    bool is_delegate() const { return tag == Tag::Delegate; }
-    bool is_callable() const { return tag == Tag::Closure || tag == Tag::Native || tag == Tag::Delegate; }
+    bool is_nil()       const { return tag == Tag::Nil; }
+    bool is_bool()      const { return tag == Tag::Bool; }
+    bool is_int()       const { return tag == Tag::Int; }
+    bool is_float()     const { return tag == Tag::Float; }
+    bool is_number()    const { return tag == Tag::Int || tag == Tag::Float; }
+    bool is_string()    const { return tag == Tag::String; }
+    bool is_table()     const { return tag == Tag::Table; }
+    bool is_closure()   const { return tag == Tag::Closure; }
+    bool is_native()    const { return tag == Tag::Native; }
+    bool is_delegate()  const { return tag == Tag::Delegate; }
+    bool is_coroutine() const { return tag == Tag::Coroutine; }
+    bool is_callable()  const { return tag == Tag::Closure || tag == Tag::Native || tag == Tag::Delegate; }
 
     // --- accessors ---
     bool    as_bool()   const { assert(is_bool());    return b; }
@@ -184,11 +193,12 @@ struct Value {
         if (is_int())   return (double)i;
         assert(false); return 0;
     }
-    const std::string& as_string() const { assert(is_string()); return str_ptr->data; }
-    ZTable*         as_table()    const { assert(is_table());    return table_ptr.get(); }
-    ZClosure*       as_closure()  const { assert(is_closure());  return closure_ptr.get(); }
-    NativeFunction* as_native()   const { assert(is_native());   return native_ptr.get(); }
-    ZDelegate*      as_delegate() const { assert(is_delegate()); return delegate_ptr.get(); }
+    const std::string& as_string()  const { assert(is_string());    return str_ptr->data; }
+    ZTable*         as_table()      const { assert(is_table());      return table_ptr.get(); }
+    ZClosure*       as_closure()    const { assert(is_closure());    return closure_ptr.get(); }
+    NativeFunction* as_native()     const { assert(is_native());     return native_ptr.get(); }
+    ZDelegate*      as_delegate()   const { assert(is_delegate());   return delegate_ptr.get(); }
+    ZCoroutine*     as_coroutine()  const { assert(is_coroutine());  return coroutine_ptr.get(); }
 
     // --- truthiness: nil and false are falsy, everything else truthy ---
     bool truthy() const {

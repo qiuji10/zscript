@@ -2,7 +2,6 @@
 #include "value.h"
 #include <cstddef>
 #include <functional>
-#include <unordered_set>
 #include <vector>
 
 namespace zscript {
@@ -55,6 +54,7 @@ public:
     void mark_value(const Value& v);
     void mark_table(ZTable* t);
     void mark_closure(ZClosure* c);
+    void mark_coroutine(ZCoroutine* c);
     void mark_string(ZString* s);
 
     // ---- stats ----

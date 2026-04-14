@@ -33,6 +33,33 @@ struct CallFrame {
 };
 
 // ---------------------------------------------------------------------------
+// ZCoroutine — stackful coroutine
+//
+// Defined here (not in value.h) because it depends on CallFrame and the
+// VM's private TryFrame / PendingCtor types.  value.h forward-declares it.
+//
+// Lifetime: shared_ptr held by the Value that represents the coroutine.
+// The GC traces saved_regs through VM::mark_roots so values inside a
+// suspended coroutine are not collected.
+// ---------------------------------------------------------------------------
+struct ZCoroutine : GcObject {
+    enum class Status { Suspended, Running, Dead };
+    Status status = Status::Suspended;
+
+    Value fn;  // initial closure; nil once the first resume frame is set up
+
+    // --- saved execution state (populated on yield, cleared on resume) ---
+    std::vector<CallFrame> saved_frames;  // absolute base_regs at save time
+    std::vector<Value>     saved_regs;   // register snapshot from regs_base onward
+    uint16_t               regs_base = 0; // abs index of first saved register
+
+    // --- yield result delivery ---
+    // On yield, these record where the next resume's args should be written.
+    uint16_t resume_result_offset = 0;  // result_reg - regs_base at yield time
+    uint8_t  resume_result_count  = 1;  // num_results of the yielding Call
+};
+
+// ---------------------------------------------------------------------------
 // VM
 // ---------------------------------------------------------------------------
 class VM {
@@ -178,6 +205,10 @@ private:
     };
     std::vector<TryFrame> try_stack_;
     Value thrown_value_;     // last value passed to Op::Throw
+
+    // Active coroutine tracking — set for the duration of a coroutine's resume.
+    ZCoroutine* active_coro_      = nullptr;
+    size_t      coro_frame_base_  = 0;   // frames_.size() at the point resume called run()
 
     void mark_roots(GC& gc);
     void runtime_error(const std::string& msg);

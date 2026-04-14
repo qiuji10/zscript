@@ -99,7 +99,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] `__call` metamethod — in `Call` opcode: if callee is a `Table` with a `__call` entry, dispatch through it; enables proxy tables to be called as constructors (`Vector3(1, 0, 0)`)
 - [x] `__eq` metamethod — in `Op::Eq` / `Op::Ne` opcodes: when both operands are tables, check for `__eq` callable and invoke it; enables two different proxy handles to the same underlying C++ object to compare equal
 - [x] `__gc` finalizer hook on `ZTable` — `std::function<void()> gc_hook` field; called from `~ZTable()`; required so C++ / C# object pool entries are released when a proxy table is garbage collected
-- [ ] Coroutines — new `ZCoroutine` GC object + `Tag::Coroutine` in `Value`; `coroutine.create(fn)`, `coroutine.resume(co, ...)`, `coroutine.yield(...)` stdlib; `Yield` opcode suspends the current coroutine frame and returns control to the resumer; VM coroutine frame stack separate from call frame stack; required for Unity `StartCoroutine` / `yield WaitForSeconds` bridge
+- [x] Coroutines — new `ZCoroutine` GC object + `Tag::Coroutine` in `Value`; `coroutine.create(fn)`, `coroutine.resume(co, ...)`, `coroutine.yield(...)`, `coroutine.status(co)`, `coroutine.wrap(fn)` stdlib; stackful coroutines with register snapshot + frame relocation on resume; resume args delivered as yield return values; required for Unity `StartCoroutine` / `yield WaitForSeconds` bridge
 
 ---
 

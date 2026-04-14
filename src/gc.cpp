@@ -1,5 +1,6 @@
 #include "gc.h"
 #include "chunk.h"   // Proto — for ZClosure->proto->constants
+#include "vm.h"      // ZCoroutine — for mark_coroutine
 
 namespace zscript {
 
@@ -98,6 +99,8 @@ void GC::drain_gray() {
             mark_table(t);
         } else if (auto* c = dynamic_cast<ZClosure*>(obj)) {
             mark_closure(c);
+        } else if (auto* co = dynamic_cast<ZCoroutine*>(obj)) {
+            mark_coroutine(co);
         }
         // ZString has no children; NativeFunction has no GcObject children
     }
@@ -112,14 +115,13 @@ void GC::mark_value(const Value& v) {
             if (v.str_ptr) mark_string(v.str_ptr.get());
             break;
         case Value::Tag::Table:
-            if (v.table_ptr) {
-                push_gray(v.table_ptr.get());
-            }
+            if (v.table_ptr) push_gray(v.table_ptr.get());
             break;
         case Value::Tag::Closure:
-            if (v.closure_ptr) {
-                push_gray(v.closure_ptr.get());
-            }
+            if (v.closure_ptr) push_gray(v.closure_ptr.get());
+            break;
+        case Value::Tag::Coroutine:
+            if (v.coroutine_ptr) push_gray(v.coroutine_ptr.get());
             break;
         default:
             break;
@@ -135,6 +137,19 @@ void GC::mark_closure(ZClosure* c) {
     // Mark constant values stored in the proto's constant pool
     if (c->proto) {
         for (auto& v : c->proto->constants) mark_value(v);
+    }
+}
+
+void GC::mark_coroutine(ZCoroutine* co) {
+    // Mark the initial function value
+    mark_value(co->fn);
+    // Mark all values saved in the suspended register snapshot
+    for (auto& v : co->saved_regs) mark_value(v);
+    // Mark constants in saved frame protos
+    for (auto& f : co->saved_frames) {
+        if (f.proto) {
+            for (auto& v : f.proto->constants) mark_value(v);
+        }
     }
 }
 

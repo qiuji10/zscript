@@ -25,8 +25,9 @@ bool Value::operator==(const Value& o) const {
         case Tag::String:  return str_ptr->data == o.str_ptr->data;
         case Tag::Table:   return table_ptr.get() == o.table_ptr.get();
         case Tag::Closure:  return closure_ptr.get() == o.closure_ptr.get();
-        case Tag::Native:   return native_ptr.get() == o.native_ptr.get();
-        case Tag::Delegate: return delegate_ptr.get() == o.delegate_ptr.get();
+        case Tag::Native:    return native_ptr.get() == o.native_ptr.get();
+        case Tag::Delegate:  return delegate_ptr.get() == o.delegate_ptr.get();
+        case Tag::Coroutine: return coroutine_ptr.get() == o.coroutine_ptr.get();
     }
     return false;
 }
@@ -45,26 +46,28 @@ std::string Value::to_string() const {
                 s += ".0";
             return s;
         }
-        case Tag::String:  return str_ptr->data;
-        case Tag::Table:   return "<table>";
-        case Tag::Closure:  return "<fn " + closure_ptr->proto->name + ">";
-        case Tag::Native:   return "<native " + native_ptr->name + ">";
-        case Tag::Delegate: return "<delegate[" + std::to_string(delegate_ptr->handlers.size()) + "]>";
+        case Tag::String:    return str_ptr->data;
+        case Tag::Table:     return "<table>";
+        case Tag::Closure:   return "<fn " + closure_ptr->proto->name + ">";
+        case Tag::Native:    return "<native " + native_ptr->name + ">";
+        case Tag::Delegate:  return "<delegate[" + std::to_string(delegate_ptr->handlers.size()) + "]>";
+        case Tag::Coroutine: return "<coroutine>";
     }
     return "<?>";
 }
 
 std::string Value::type_name() const {
     switch (tag) {
-        case Tag::Nil:     return "nil";
-        case Tag::Bool:    return "bool";
-        case Tag::Int:     return "int";
-        case Tag::Float:   return "float";
-        case Tag::String:  return "string";
-        case Tag::Table:   return "table";
-        case Tag::Closure:  return "function";
-        case Tag::Native:   return "native";
-        case Tag::Delegate: return "delegate";
+        case Tag::Nil:       return "nil";
+        case Tag::Bool:      return "bool";
+        case Tag::Int:       return "int";
+        case Tag::Float:     return "float";
+        case Tag::String:    return "string";
+        case Tag::Table:     return "table";
+        case Tag::Closure:   return "function";
+        case Tag::Native:    return "native";
+        case Tag::Delegate:  return "delegate";
+        case Tag::Coroutine: return "coroutine";
     }
     return "unknown";
 }

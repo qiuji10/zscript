@@ -829,3 +829,138 @@ TEST_CASE("__gc hook fires when table is collected", "[vm][metamethod]") {
     }
     CHECK(fired == true);
 }
+
+// ---------------------------------------------------------------------------
+// Coroutines
+// ---------------------------------------------------------------------------
+// Note: `var ok, val = fn()` at top level creates locals (not globals).
+// Tests use a helper function that writes results to globals via plain assignment.
+
+TEST_CASE("coroutine basic create and resume", "[vm][coroutine]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var co = coroutine.create(fn() { return 42 })
+        fn do_it() {
+            var ok, val = coroutine.resume(co)
+            resume_ok  = ok
+            resume_val = val
+        }
+        do_it()
+    )"));
+    CHECK(c.global("resume_ok").as_bool() == true);
+    CHECK(c.global("resume_val").as_int() == 42);
+}
+
+TEST_CASE("coroutine yield multiple times", "[vm][coroutine]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var co = coroutine.create(fn() {
+            coroutine.yield(1)
+            coroutine.yield(2)
+            return 3
+        })
+        fn step() {
+            var ok, v = coroutine.resume(co)
+            last_ok = ok
+            last_v  = v
+        }
+        step()  var v1 = last_v
+        step()  var v2 = last_v
+        step()  var v3 = last_v
+    )"));
+    CHECK(c.global("v1").as_int() == 1);
+    CHECK(c.global("v2").as_int() == 2);
+    CHECK(c.global("v3").as_int() == 3);
+}
+
+TEST_CASE("coroutine status transitions", "[vm][coroutine]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var co = coroutine.create(fn() { coroutine.yield() })
+        var s0 = coroutine.status(co)
+        coroutine.resume(co)
+        var s1 = coroutine.status(co)
+        coroutine.resume(co)
+        var s2 = coroutine.status(co)
+    )"));
+    CHECK(c.global("s0").as_string() == "suspended");
+    CHECK(c.global("s1").as_string() == "suspended");
+    CHECK(c.global("s2").as_string() == "dead");
+}
+
+TEST_CASE("coroutine resume dead coroutine returns error", "[vm][coroutine]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var co = coroutine.create(fn() { return 1 })
+        coroutine.resume(co)
+        fn check_dead() {
+            var ok, msg = coroutine.resume(co)
+            dead_ok = ok
+        }
+        check_dead()
+    )"));
+    CHECK(c.global("dead_ok").as_bool() == false);
+}
+
+TEST_CASE("coroutine wrap produces callable", "[vm][coroutine]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var gen = coroutine.wrap(fn() {
+            coroutine.yield(10)
+            coroutine.yield(20)
+            return 30
+        })
+        var a = gen()
+        var b = gen()
+        var c = gen()
+    )"));
+    CHECK(c.global("a").as_int() == 10);
+    CHECK(c.global("b").as_int() == 20);
+    CHECK(c.global("c").as_int() == 30);
+}
+
+TEST_CASE("coroutine resume passes value to yield", "[vm][coroutine]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        var co = coroutine.create(fn() {
+            var x = coroutine.yield(1)
+            return x + 100
+        })
+        fn step1() {
+            var ok, v = coroutine.resume(co)
+            yield_val = v
+        }
+        fn step2() {
+            var ok, v = coroutine.resume(co, 42)
+            return_val = v
+        }
+        step1()
+        step2()
+    )"));
+    CHECK(c.global("yield_val").as_int() == 1);
+    CHECK(c.global("return_val").as_int() == 142);
+}
+
+TEST_CASE("coroutine wrap generator pattern", "[vm][coroutine]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn range(n) {
+            return coroutine.wrap(fn() {
+                var i = 0
+                while i < n {
+                    coroutine.yield(i)
+                    i = i + 1
+                }
+            })
+        }
+        var r = range(4)
+        var r0 = r()
+        var r1 = r()
+        var r2 = r()
+        var r3 = r()
+    )"));
+    CHECK(c.global("r0").as_int() == 0);
+    CHECK(c.global("r1").as_int() == 1);
+    CHECK(c.global("r2").as_int() == 2);
+    CHECK(c.global("r3").as_int() == 3);
+}

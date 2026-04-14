@@ -18,6 +18,16 @@
 
 namespace zscript {
 
+// ---------------------------------------------------------------------------
+// CoroutineYield — thrown by coroutine.yield(), caught by coroutine.resume()
+// Not a RuntimeError so it propagates through run() unmodified.
+// ---------------------------------------------------------------------------
+struct CoroutineYield {
+    std::vector<Value> values;
+    uint16_t result_reg  = 0; // absolute reg where resume args land (set by call/call_method)
+    uint8_t  num_results = 1; // C field of the Call that invoked yield
+};
+
 // ===========================================================================
 // Constructor / Destructor
 // ===========================================================================
@@ -56,6 +66,10 @@ void VM::mark_roots(GC& gc) {
     for (auto& [name, mod] : loader_.modules()) {
         for (auto& [k, v] : mod->exports) gc.mark_value(v);
         gc.mark_value(mod->on_reload_fn);
+    }
+    // If a coroutine is suspended mid-resume (nested resume), mark its saved state
+    if (active_coro_) {
+        for (auto& v : active_coro_->saved_regs) gc.mark_value(v);
     }
 }
 
@@ -1118,6 +1132,189 @@ void VM::open_stdlib() {
     });
 
     globals_["json"] = json_tbl;
+
+    // -------------------------------------------------------------------------
+    // coroutine module
+    // -------------------------------------------------------------------------
+    Value co_tbl = Value::from_table();
+    auto* ct = co_tbl.as_table();
+    auto cfn = [&](const std::string& key, NativeFunction::Fn fn) {
+        ct->set(key, Value::from_native("coroutine." + key, std::move(fn)));
+    };
+
+    // coroutine.create(fn) — wrap a closure in a new coroutine
+    cfn("create", [](std::vector<Value> args) -> std::vector<Value> {
+        if (args.empty() || !args[0].is_closure())
+            throw RuntimeError{"coroutine.create: expected function", ""};
+        auto co = std::make_shared<ZCoroutine>();
+        co->fn = args[0];
+        return {Value::from_coroutine(co)};
+    });
+
+    // coroutine.status(co) — "suspended" | "running" | "dead"
+    cfn("status", [](std::vector<Value> args) -> std::vector<Value> {
+        if (args.empty() || !args[0].is_coroutine())
+            throw RuntimeError{"coroutine.status: expected coroutine", ""};
+        switch (args[0].as_coroutine()->status) {
+            case ZCoroutine::Status::Suspended: return {Value::from_string("suspended")};
+            case ZCoroutine::Status::Running:   return {Value::from_string("running")};
+            case ZCoroutine::Status::Dead:      return {Value::from_string("dead")};
+        }
+        return {Value::from_string("dead")};
+    });
+
+    // coroutine.yield(...) — suspend the running coroutine, pass values to resumer
+    cfn("yield", [this](std::vector<Value> args) -> std::vector<Value> {
+        if (!active_coro_)
+            throw RuntimeError{"coroutine.yield called outside a coroutine", ""};
+        throw CoroutineYield{std::move(args)};
+        return {}; // unreachable
+    });
+
+    // coroutine.resume(co, ...args) — resume a suspended coroutine
+    // Returns (true, yield_values...) on yield/return, (false, error_msg) on error.
+    cfn("resume", [this](std::vector<Value> args) -> std::vector<Value> {
+        if (args.empty() || !args[0].is_coroutine())
+            throw RuntimeError{"coroutine.resume: expected coroutine", ""};
+        auto co_sp = args[0].coroutine_ptr;
+        ZCoroutine* co = co_sp.get();
+        std::vector<Value> resume_args(args.begin() + 1, args.end());
+
+        if (co->status == ZCoroutine::Status::Running)
+            return {Value::from_bool(false), Value::from_string("cannot resume running coroutine")};
+        if (co->status == ZCoroutine::Status::Dead)
+            return {Value::from_bool(false), Value::from_string("cannot resume dead coroutine")};
+
+        // Compute high-water mark over all current active frames
+        uint16_t top = 0;
+        for (auto& f : frames_) {
+            if (!f.proto) continue;
+            uint16_t ft = (uint16_t)(f.base_reg + f.proto->max_regs);
+            if (ft > top) top = ft;
+        }
+        top += 4; // safety gap
+        uint16_t new_regs_base = top;
+
+        size_t saved_depth = frames_.size();
+        ZCoroutine* prev_coro = active_coro_;
+        active_coro_ = co;
+        co->status = ZCoroutine::Status::Running;
+
+        if (co->saved_frames.empty()) {
+            // First resume — set up initial call frame
+            if (!co->fn.is_closure()) {
+                co->status = ZCoroutine::Status::Dead;
+                active_coro_ = prev_coro;
+                return {Value::from_bool(false), Value::from_string("coroutine function must be a closure")};
+            }
+            Proto* proto = co->fn.as_closure()->proto;
+            regs_[new_regs_base] = co->fn;
+            for (size_t i = 0; i < resume_args.size(); ++i)
+                regs_[new_regs_base + 1 + i] = resume_args[i];
+            for (size_t i = resume_args.size(); i < proto->num_params; ++i)
+                regs_[new_regs_base + 1 + i] = Value::nil();
+
+            CallFrame frame;
+            frame.proto       = proto;
+            frame.pc          = 0;
+            frame.base_reg    = (uint8_t)(new_regs_base + 1);
+            frame.num_results = 1;
+            frame.closure     = co->fn.as_closure();
+            frames_.push_back(frame);
+            co->regs_base = new_regs_base;
+        } else {
+            // Subsequent resume — restore saved frames and registers
+            int32_t delta = (int32_t)new_regs_base - (int32_t)co->regs_base;
+            // Copy saved registers to new position
+            for (size_t i = 0; i < co->saved_regs.size(); ++i)
+                regs_[new_regs_base + i] = co->saved_regs[i];
+            // Restore frames, adjusting base_reg by delta
+            for (auto f : co->saved_frames) {
+                f.base_reg = (uint8_t)((int32_t)f.base_reg + delta);
+                frames_.push_back(f);
+            }
+            co->regs_base = new_regs_base;
+            co->saved_frames.clear();
+            co->saved_regs.clear();
+
+            // Deliver resume args as the return value(s) of the yield call.
+            // The offset was recorded at yield time (result_reg - regs_base).
+            uint16_t abs_result = new_regs_base + co->resume_result_offset;
+            for (uint8_t i = 0; i < co->resume_result_count; ++i) {
+                regs_[abs_result + i] = (i < resume_args.size())
+                    ? resume_args[i] : Value::nil();
+            }
+        }
+
+        uint16_t result_reg = new_regs_base;
+
+        try {
+            run(saved_depth);
+            // Coroutine returned normally
+            co->status = ZCoroutine::Status::Dead;
+            active_coro_ = prev_coro;
+            return {Value::from_bool(true), regs_[result_reg]};
+        } catch (CoroutineYield& cy) {
+            // Coroutine yielded — save execution state
+            co->status = ZCoroutine::Status::Suspended;
+            active_coro_ = prev_coro;
+
+            // Close open upvalues in the coroutine's register range so they
+            // remain valid across yield/resume cycles.
+            close_upvals_above(new_regs_base);
+
+            // Compute high-water mark of coroutine's own frames
+            uint16_t coro_max = new_regs_base + 1;
+            for (size_t i = saved_depth; i < frames_.size(); ++i) {
+                if (!frames_[i].proto) continue;
+                uint16_t ft = (uint16_t)(frames_[i].base_reg + frames_[i].proto->max_regs);
+                if (ft > coro_max) coro_max = ft;
+            }
+
+            // Record where the next resume's args should be written (relative offset
+            // from regs_base so it stays valid after register-relocation on resume).
+            co->resume_result_offset = (uint16_t)(cy.result_reg - new_regs_base);
+            co->resume_result_count  = cy.num_results;
+
+            // Save registers and frames
+            co->saved_regs.assign(regs_ + new_regs_base, regs_ + coro_max);
+            co->saved_frames.assign(frames_.begin() + saved_depth, frames_.end());
+            frames_.resize(saved_depth);
+
+            std::vector<Value> result = {Value::from_bool(true)};
+            result.insert(result.end(), cy.values.begin(), cy.values.end());
+            return result;
+        } catch (RuntimeError& e) {
+            co->status = ZCoroutine::Status::Dead;
+            active_coro_ = prev_coro;
+            frames_.resize(saved_depth);
+            return {Value::from_bool(false), Value::from_string(e.message)};
+        }
+    });
+
+    // coroutine.wrap(fn) — returns a callable that resumes a hidden coroutine;
+    // propagates errors, returns yield values directly (no bool prefix)
+    cfn("wrap", [this](std::vector<Value> args) -> std::vector<Value> {
+        if (args.empty() || !args[0].is_closure())
+            throw RuntimeError{"coroutine.wrap: expected function", ""};
+        auto co = std::make_shared<ZCoroutine>();
+        co->fn = args[0];
+        Value co_val = Value::from_coroutine(co);
+        // Return a native closure that resumes co on each call
+        Value resume_fn = globals_["coroutine"].as_table()->get("resume");
+        return {Value::from_native("wrapped_coroutine", [co_val, resume_fn, this](std::vector<Value> call_args) mutable -> std::vector<Value> {
+            call_args.insert(call_args.begin(), co_val);
+            auto res = invoke_from_native(resume_fn, call_args);
+            // res[0] = bool ok, res[1..] = values
+            if (!res.empty() && res[0].is_bool() && !res[0].as_bool()) {
+                std::string msg = (res.size() > 1 && res[1].is_string()) ? res[1].as_string() : "coroutine failed";
+                throw RuntimeError{msg, ""};
+            }
+            return std::vector<Value>(res.begin() + 1, res.end());
+        })};
+    });
+
+    globals_["coroutine"] = co_tbl;
 }
 
 // ===========================================================================
@@ -1521,13 +1718,19 @@ bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
         for (int i = 0; i < num_args; ++i) {
             args.push_back(regs_[abs_base + 1 + i]);
         }
-        auto results = callee.as_native()->fn(std::move(args));
-        // Store results
-        for (uint8_t i = 0; i < num_results && i < results.size(); ++i) {
-            regs_[abs_base + i] = results[i];
-        }
-        for (uint8_t i = (uint8_t)results.size(); i < num_results; ++i) {
-            regs_[abs_base + i] = Value::nil();
+        try {
+            auto results = callee.as_native()->fn(std::move(args));
+            // Store results
+            for (uint8_t i = 0; i < num_results && i < results.size(); ++i) {
+                regs_[abs_base + i] = results[i];
+            }
+            for (uint8_t i = (uint8_t)results.size(); i < num_results; ++i) {
+                regs_[abs_base + i] = Value::nil();
+            }
+        } catch (CoroutineYield& cy) {
+            cy.result_reg  = abs_base;
+            cy.num_results = num_results;
+            throw;
         }
         return true;
     }
@@ -1684,11 +1887,17 @@ bool VM::call_method(uint8_t base_reg_offset, uint8_t user_args, uint8_t num_res
         std::vector<Value> args;
         for (uint8_t i = 0; i < user_args; ++i)
             args.push_back(regs_[abs_A + 2 + i]);
-        auto results = callee.as_native()->fn(std::move(args));
-        for (uint8_t i = 0; i < num_results && i < results.size(); ++i)
-            regs_[abs_A + i] = results[i];
-        for (uint8_t i = (uint8_t)results.size(); i < num_results; ++i)
-            regs_[abs_A + i] = Value::nil();
+        try {
+            auto results = callee.as_native()->fn(std::move(args));
+            for (uint8_t i = 0; i < num_results && i < results.size(); ++i)
+                regs_[abs_A + i] = results[i];
+            for (uint8_t i = (uint8_t)results.size(); i < num_results; ++i)
+                regs_[abs_A + i] = Value::nil();
+        } catch (CoroutineYield& cy) {
+            cy.result_reg  = abs_A;
+            cy.num_results = num_results;
+            throw;
+        }
         return true;
     }
 
