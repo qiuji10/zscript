@@ -171,6 +171,13 @@ void zs_vm_register_fn(ZsVM vm_handle, const char* name, ZsNativeFn fn) {
 }
 
 // ===========================================================================
+// Global value access
+// ===========================================================================
+ZsValue zs_vm_get_global(ZsVM vm_handle, const char* name) {
+    return new ZsValueBox(as_vm(vm_handle)->get_global(name));
+}
+
+// ===========================================================================
 // Object handle system
 // ===========================================================================
 void zs_vm_set_handle_release(ZsVM vm_handle, ZsHandleReleaseFn fn) {
@@ -358,4 +365,85 @@ void zs_value_free(ZsValue val) {
 ZsValue zs_value_clone(ZsValue val) {
     if (!val) return new ZsValueBox(zscript::Value::nil());
     return new ZsValueBox(as_box(val)->v); // Value copy ctor handles shared_ptr refcount
+}
+
+// ===========================================================================
+// Coroutine API
+// ===========================================================================
+
+// Helper: get a named entry from the global 'coroutine' table.
+static zscript::Value coroutine_entry(zscript::VM* vm, const char* key) {
+    zscript::Value ct = vm->get_global("coroutine");
+    if (!ct.is_table()) return zscript::Value::nil();
+    return ct.as_table()->get(key);
+}
+
+ZsValue zs_coroutine_create(ZsVM vm_handle, ZsValue fn_val) {
+    using namespace zscript;
+    VM* vm = as_vm(vm_handle);
+    Value create_fn = coroutine_entry(vm, "create");
+    if (create_fn.is_nil()) return new ZsValueBox(Value::nil());
+    try {
+        auto results = vm->invoke_from_native(create_fn, {as_box(fn_val)->v});
+        Value co = results.empty() ? Value::nil() : results[0];
+        return new ZsValueBox(std::move(co));
+    } catch (...) {
+        return new ZsValueBox(Value::nil());
+    }
+}
+
+int zs_coroutine_resume(ZsVM vm_handle, ZsValue co_val,
+                        int argc, ZsValue* argv,
+                        ZsValue* out_value) {
+    using namespace zscript;
+    VM* vm = as_vm(vm_handle);
+    ZsValueBox* co_box = as_box(co_val);
+    if (!co_box || !co_box->v.is_coroutine()) {
+        if (out_value) *out_value = new ZsValueBox(Value::nil());
+        return -1;
+    }
+
+    Value resume_fn = coroutine_entry(vm, "resume");
+    if (resume_fn.is_nil()) {
+        if (out_value) *out_value = new ZsValueBox(Value::nil());
+        return -1;
+    }
+
+    // Build args: [co, resume_arg1, ...]
+    std::vector<Value> args;
+    args.push_back(co_box->v);
+    for (int i = 0; i < argc; ++i)
+        args.push_back(as_box(argv[i])->v);
+
+    try {
+        auto results = vm->invoke_from_native(resume_fn, std::move(args));
+        // results[0] = bool ok, results[1] = first yield/return value
+        bool ok = !results.empty() && results[0].is_bool() && results[0].as_bool();
+        Value yielded = results.size() > 1 ? results[1] : Value::nil();
+        if (out_value) *out_value = new ZsValueBox(std::move(yielded));
+
+        if (!ok) {
+            // error — coroutine is dead, out_value holds error string
+            return 0;
+        }
+        // Check if coroutine is still suspended (it yielded) or dead (it returned).
+        auto* co = co_box->v.as_coroutine();
+        return (co->status == ZCoroutine::Status::Suspended) ? 1 : 0;
+    } catch (...) {
+        if (out_value) *out_value = new ZsValueBox(Value::nil());
+        return 0;
+    }
+}
+
+int zs_coroutine_status(ZsVM /*vm*/, ZsValue co_val) {
+    using namespace zscript;
+    if (!co_val) return -1;
+    ZsValueBox* box = as_box(co_val);
+    if (!box->v.is_coroutine()) return -1;
+    switch (box->v.as_coroutine()->status) {
+        case ZCoroutine::Status::Suspended: return 0;
+        case ZCoroutine::Status::Running:   return 1;
+        case ZCoroutine::Status::Dead:      return 2;
+    }
+    return 2;
 }

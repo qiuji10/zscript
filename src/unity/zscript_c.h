@@ -97,6 +97,13 @@ int   zs_vm_call(ZsVM vm, const char* name,
 void  zs_vm_register_fn(ZsVM vm, const char* name, ZsNativeFn fn);
 
 // ---------------------------------------------------------------------------
+// Global value access
+// ---------------------------------------------------------------------------
+// Returns a new ZsValue for the named global (caller must free).
+// Returns a nil ZsValue if the global does not exist.
+ZsValue zs_vm_get_global(ZsVM vm, const char* name);
+
+// ---------------------------------------------------------------------------
 // Object handle system
 // ---------------------------------------------------------------------------
 // Register the callback invoked when a proxy table is GC'd.
@@ -158,6 +165,28 @@ int64_t zs_value_as_object(ZsValue val); // returns handle id or -1
 // ---------------------------------------------------------------------------
 void    zs_value_free(ZsValue val);
 ZsValue zs_value_clone(ZsValue val);
+
+// ---------------------------------------------------------------------------
+// Coroutine API
+// ---------------------------------------------------------------------------
+// Create a coroutine from a ZScript closure value.
+// Returns a new ZsValue of type ZS_TYPE_COROUTINE (caller must free it).
+ZsValue zs_coroutine_create(ZsVM vm, ZsValue fn_val);
+
+// Resume a coroutine with the given arguments.
+//   out_value — receives the first value yielded/returned (caller must free).
+// Returns:
+//   1  — coroutine yielded; it is still suspended; out_value is the yield arg.
+//   0  — coroutine finished (returned normally or errored); out_value is the
+//         return value or an error string.
+//  -1  — val is not a coroutine.
+int zs_coroutine_resume(ZsVM vm, ZsValue co_val,
+                        int argc, ZsValue* argv,
+                        ZsValue* out_value);
+
+// Return the current status of a coroutine.
+//   0 = suspended, 1 = running, 2 = dead, -1 = not a coroutine
+int zs_coroutine_status(ZsVM vm, ZsValue co_val);
 
 #ifdef __cplusplus
 } // extern "C"

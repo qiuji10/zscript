@@ -173,5 +173,25 @@ namespace ZScript
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr zs_value_clone(IntPtr val);
+
+        // Global value access
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr zs_vm_get_global(IntPtr vm, string name);
+
+        // Coroutine API
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr zs_coroutine_create(IntPtr vm, IntPtr fn_val);
+
+        // Returns: 1 = yielded (still suspended), 0 = dead/error, -1 = not a coroutine.
+        // out_value receives the first yielded/return value (caller must free).
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int zs_coroutine_resume(
+            IntPtr vm, IntPtr co_val,
+            int argc, IntPtr[] argv,
+            out IntPtr out_value);
+
+        // Returns: 0=suspended, 1=running, 2=dead, -1=not a coroutine.
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int zs_coroutine_status(IntPtr vm, IntPtr co_val);
     }
 }

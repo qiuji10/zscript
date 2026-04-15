@@ -2,6 +2,7 @@
 // Attach to a GameObject in the scene.  Script files are loaded on Start();
 // poll() is called each Update() to apply hotpatch reloads.
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
@@ -18,6 +19,9 @@ namespace ZScript
         // ----------------------------------------------------------------
         // Inspector fields
         // ----------------------------------------------------------------
+        [Tooltip("ZScriptModule assets to load on Start (loaded in list order).")]
+        public List<ZScriptModule> startupModules = new List<ZScriptModule>();
+
         [Tooltip("Script files to load on Start (paths relative to StreamingAssets).")]
         public List<string> startupScripts = new List<string>();
 
@@ -85,6 +89,47 @@ namespace ZScript
         public void RegisterFunction(string name, ZsNativeFn fn)
             => ZsNative.zs_vm_register_fn(_vm, name, fn);
 
+        // ----------------------------------------------------------------
+        // Coroutine bridge
+        // ----------------------------------------------------------------
+        /// <summary>
+        /// Start a named ZScript function as a Unity coroutine.
+        /// Inside the ZScript function use <c>coroutine.yield(WaitForSeconds(n))</c>
+        /// etc. to suspend until the Unity yield instruction completes.
+        /// </summary>
+        /// <returns>A Unity <see cref="Coroutine"/> handle for
+        /// <see cref="StopZsCoroutine"/>.</returns>
+        public Coroutine StartZsCoroutine(string fnName)
+        {
+            using var closureHandle = new ZsValueHandle(ZsNative.zs_vm_get_global(_vm, fnName));
+            if (closureHandle.Type == ZsType.Nil)
+            {
+                Debug.LogError($"[ZScript] StartZsCoroutine: '{fnName}' not found.");
+                return null;
+            }
+            var coHandle = new ZsValueHandle(ZsNative.zs_coroutine_create(_vm, closureHandle.Raw));
+            if (coHandle.Type != ZsType.Coroutine)
+            {
+                coHandle.Dispose();
+                Debug.LogError($"[ZScript] StartZsCoroutine: '{fnName}' is not a function.");
+                return null;
+            }
+            return StartCoroutine(new ZsCoroutineBridge(_vm, coHandle));
+        }
+
+        /// <summary>Start a ZScript coroutine value directly as a Unity coroutine.</summary>
+        public Coroutine StartZsCoroutine(ZsValueHandle coVal)
+        {
+            if (coVal == null || coVal.IsInvalid) return null;
+            return StartCoroutine(new ZsCoroutineBridge(_vm, coVal.Clone()));
+        }
+
+        /// <summary>Stop a running ZScript coroutine by its Unity handle.</summary>
+        public void StopZsCoroutine(Coroutine co)
+        {
+            if (co != null) StopCoroutine(co);
+        }
+
         /// <summary>Create a ZScript proxy table for the given C# object.</summary>
         public ZsValueHandle WrapObject(object obj)
         {
@@ -110,8 +155,76 @@ namespace ZScript
         // ----------------------------------------------------------------
         private IntPtr _vm = IntPtr.Zero;
 
-        // Keep a strong reference to the delegate so it isn't GC'd.
+        // Strong references — prevent GC from collecting delegates held only by C++.
         private ZsHandleReleaseFn _releaseFn;
+        private ZsNativeFn        _startCoFn;
+        private ZsNativeFn        _stopCoFn;
+
+        // ZScript source that defines the yield-descriptor factory functions.
+        // These are loaded once in Awake() so any script can call them.
+        private const string YieldHelperSource = @"
+fn WaitForSeconds(seconds) {
+    return { __yield_type: ""WaitForSeconds"", seconds: seconds }
+}
+fn WaitForEndOfFrame() {
+    return { __yield_type: ""WaitForEndOfFrame"" }
+}
+fn WaitForFixedUpdate() {
+    return { __yield_type: ""WaitForFixedUpdate"" }
+}
+fn WaitUntil(pred) {
+    return { __yield_type: ""WaitUntil"", fn: pred }
+}
+fn WaitWhile(pred) {
+    return { __yield_type: ""WaitWhile"", fn: pred }
+}
+";
+
+        // Register yield helpers and StartCoroutine / StopCoroutine into the VM.
+        private void RegisterYieldHelpers()
+        {
+            // Load pure-ZScript yield descriptor factories.
+            byte[] err = new byte[256];
+            int ok = ZsNative.zs_vm_load_source(
+                _vm, "__yield_helpers__", YieldHelperSource, err, err.Length);
+            if (ok == 0)
+                Debug.LogError("[ZScript] RegisterYieldHelpers: " +
+                               Encoding.UTF8.GetString(err).TrimEnd('\0'));
+
+            // StartCoroutine(fn) — takes a ZScript closure, wraps it in a
+            // ZsCoroutineBridge, and drives it through Unity's scheduler.
+            _startCoFn = (vm, argc, argv) =>
+            {
+                if (argc < 1) return ZsNative.zs_value_nil();
+                var coHandle = new ZsValueHandle(ZsNative.zs_coroutine_create(vm, argv[0]));
+                if (coHandle.Type != ZsType.Coroutine)
+                {
+                    coHandle.Dispose();
+                    return ZsNative.zs_value_nil();
+                }
+                var bridge = new ZsCoroutineBridge(vm, coHandle);
+                Coroutine co = StartCoroutine(bridge);
+                long id = ObjectPool.Alloc(co);
+                return ZsNative.zs_value_int(id);
+            };
+            ZsNative.zs_vm_register_fn(_vm, "StartCoroutine", _startCoFn);
+
+            // StopCoroutine(handle) — takes the integer handle returned by
+            // StartCoroutine and cancels the Unity coroutine.
+            _stopCoFn = (vm, argc, argv) =>
+            {
+                if (argc < 1) return ZsNative.zs_value_nil();
+                long id = ZsNative.zs_value_as_int(argv[0]);
+                var co = ObjectPool.Get<Coroutine>(id);
+                if (co != null)
+                {
+                    ObjectPool.Release(id);
+                    StopCoroutine(co);
+                }
+                return ZsNative.zs_value_nil();
+            };
+            ZsNative.zs_vm_register_fn(_vm, "StopCoroutine", _stopCoFn);
+        }
 
         private void Awake()
         {
@@ -122,6 +235,9 @@ namespace ZScript
             _releaseFn = OnHandleReleased;
             ZsNative.zs_vm_set_handle_release(_vm, _releaseFn);
 
+            // Register yield helpers + StartCoroutine / StopCoroutine globals.
+            RegisterYieldHelpers();
+
             // Activate inspector-configured tags.
             foreach (string tag in tags)
                 ZsNative.zs_vm_add_tag(_vm, tag);
@@ -129,7 +245,11 @@ namespace ZScript
 
         private void Start()
         {
-            // Load startup scripts.
+            // Load ScriptableObject module assets first.
+            foreach (ZScriptModule mod in startupModules)
+                mod?.LoadInto(this);
+
+            // Then load raw file paths (StreamingAssets).
             foreach (string script in startupScripts)
             {
                 string fullPath = System.IO.Path.Combine(

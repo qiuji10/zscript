@@ -99,6 +99,8 @@ public:
     Value call_global(const std::string& name, std::vector<Value> args = {});
     // Call any callable Value (closure or native). Returns first return value or nil.
     Value call_value(const Value& fn, std::vector<Value> args = {});
+    // Re-entrant closure/native call usable from within native callbacks.
+    std::vector<Value> invoke_from_native(Value fn, std::vector<Value> args);
 
     // --- hotpatch ---
     // Start watching dir for .zs file changes. Returns false on failure.
@@ -173,8 +175,6 @@ private:
     bool run(size_t stop_depth = 0);
     bool call(uint8_t base_reg, uint8_t num_args, uint8_t num_results);
     bool call_method(uint8_t base_reg, uint8_t user_args, uint8_t num_results);
-    // Re-entrant closure call from within a native function.
-    std::vector<Value> invoke_from_native(Value fn, std::vector<Value> args);
 
     static constexpr size_t MAX_REGS   = 1024;
     static constexpr size_t MAX_FRAMES = 200;

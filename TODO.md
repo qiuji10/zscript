@@ -201,40 +201,40 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] `ZsValueHandle.cs` — `SafeHandle` subclass; `ReleaseHandle()` calls `zs_value_free()`; factories for all value types; typed accessors
 - [x] `ZsVM.cs` — `[DllImport]` declarations for all `zs_*` C API functions; `const string Lib = "zscript_unity"`
 - [x] `ZScriptVM.cs` — `MonoBehaviour`; owns `ZsVM`; `Awake()` creates VM + wires handle release; `Start()` loads startup scripts + enables hotpatch; `Update()` calls `zs_vm_poll()`; `OnDestroy()` calls `zs_vm_free()`; exposes `LoadFile()`, `LoadSource()`, `Call()`, `AddTag()`, `WrapObject()`, `UnwrapObject<T>()`
-- [ ] `ZScriptModule.cs` — `ScriptableObject` asset that holds a `.zs` file reference; drag-and-drop in Inspector; `ZScriptVM` loads it on `Start()`
+- [x] `ZScriptModule.cs` — `ScriptableObject` with `scriptAsset: TextAsset` + optional `moduleName`; `LoadInto(vm)` calls `vm.LoadSource()`; `ZScriptVM.startupModules` list loaded in `Start()` before file paths
 - [x] Object pool (`ZsObjectPool.cs`) — `Dictionary<long, object>` + reverse map; thread-safe; `Alloc(obj)`, `Get<T>(id)`, `Release(id)`; no `GCHandle` pinning needed since C side only sees the integer
 
 #### Built-in Unity type bindings — edit-time codegen tool (`tools/UnityBindingGen/`)
-- [ ] C# console tool (`UnityBindingGen.exe`) using Roslyn (`Microsoft.CodeAnalysis`) — invoked from Unity Editor menu or CI; zero runtime reflection
-- [ ] Scans `UnityEngine.dll` (and `UnityEngine.CoreModule.dll`, etc.) in the current Unity install; discovers public types, methods, properties, fields
-- [ ] Generates one `.cpp` file per Unity type (e.g., `unity_bindings/Transform_binding.cpp`) with a `register_Transform(VM& vm)` function that:
+- [x] C# console tool (`UnityBindingGen.exe`) using Roslyn (`Microsoft.CodeAnalysis`) — invoked from Unity Editor menu or CI; zero runtime reflection
+- [x] Scans `UnityEngine.dll` (and `UnityEngine.CoreModule.dll`, etc.) in the current Unity install; discovers public types, methods, properties, fields
+- [x] Generates one `.cpp` file per Unity type (e.g., `unity_bindings/Transform_binding.cpp`) with a `register_Transform(VM& vm)` function that:
   - Creates a ZScript class table named `"Transform"` (exact C# name, no snake_case conversion)
   - For each public method `Foo(args)`: registers a native fn `"Foo"` that extracts `object_handle`, calls `zs_object_call_method(handle, "Foo", ...)` via C API dispatch
   - For each readable property `Bar`: registers `__index` handler case `"Bar"` → `zs_object_get_prop(handle, "Bar")`
   - For each writable property `Bar`: registers `__newindex` handler case `"Bar"` → `zs_object_set_prop(handle, "Bar", value)`
   - All names are the literal C# identifier — no transformation applied
-- [ ] Generates a C# dispatch file (`ZsUnityDispatch.cs`) with a `static void Dispatch(long handle, string method, ...)` method using `switch` on `method` name; delegates to `static readonly Action<...>` fields (IL2CPP safe — no `MethodInfo.Invoke`)
-- [ ] Priority type list for initial codegen: `Transform`, `GameObject`, `Rigidbody`, `Rigidbody2D`, `Collider`, `Collider2D`, `Camera`, `Light`, `AudioSource`, `Animator`, `NavMeshAgent`, `ParticleSystem`, `Canvas`, `RectTransform`, `Image`, `Text`, `Button`
-- [ ] Struct types (`Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Color`, `Rect`, `Bounds`) — marshalled by value as ZScript tables with `x`/`y`/`z`/`w` fields; `__call` metamethod on the class table acts as constructor
-- [ ] `register_unity_builtins(VM& vm)` — bulk entry point called by `ZScriptVM` at startup; calls all per-type `register_*` fns
+- [x] Generates a C# dispatch file (`ZsUnityDispatch.cs`) with a `static void Dispatch(long handle, string method, ...)` method using `switch` on `method` name; delegates to `static readonly Action<...>` fields (IL2CPP safe — no `MethodInfo.Invoke`)
+- [x] Priority type list for initial codegen: `Transform`, `GameObject`, `Rigidbody`, `Rigidbody2D`, `Collider`, `Collider2D`, `Camera`, `Light`, `AudioSource`, `Animator`, `NavMeshAgent`, `ParticleSystem`, `Canvas`, `RectTransform`, `Image`, `Text`, `Button`
+- [x] Struct types (`Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Color`, `Rect`, `Bounds`) — marshalled by value as ZScript tables with `x`/`y`/`z`/`w` fields; `__call` metamethod on the class table acts as constructor
+- [x] `register_unity_builtins(VM& vm)` — bulk entry point called by `ZScriptVM` at startup; calls all per-type `register_*` fns
 
 #### `[ZScriptExport]` codegen for user C# classes (`tools/ZScriptExportGen/`)
-- [ ] MSBuild / Unity Editor source generator: scans all assemblies for types tagged `[ZScriptExport]`
-- [ ] For each exported type: generates a `register_<TypeName>(VM& vm)` C++ snippet and a C# dispatch stub — same name-preserving approach as built-in codegen
-- [ ] Supports: methods, get/set properties, public fields — all three surface as plain `obj.Name` / `obj.Name = v` in ZScript via `__index`/`__newindex`
-- [ ] Pure C# classes (non-MonoBehaviour): `__call` metamethod registered as constructor — `MyClass()` in ZScript calls `new MyClass()` in C#; `ZsObjectPool` holds a strong reference so C# GC does not collect the object while ZScript holds the handle
-- [ ] MonoBehaviour classes: `__call` disabled (engine manages instantiation via `AddComponent`); ZScript receives the handle from C# side after `AddComponent` completes
-- [ ] Handle release: when ZScript GC drops the last reference to a handle, `zs_value_free()` calls `pool.Release(id)` — the strong C# reference is dropped and GC can collect the object
-- [ ] Static classes (e.g. `Physics`, `Time`, `Input`, `Screen`, `Mathf`): registered as a global ZScript table (no object handle, no `__call`); static methods → table functions; static fields/properties → `__index`/`__newindex` on the table; `Time.deltaTime`, `Input.mousePosition`, `Physics.gravity` etc. work identically to C#
-- [ ] Generic methods (e.g. `GameObject.FindObjectsWithType<T>()`, `GetComponent<T>()`): ZScript's own generic syntax works naturally — `FindObjectsWithType<Camera>()` passes the `Camera` class table as `T`; native binding reads `T.__name` to get the type name string and dispatches into a pre-generated C# `static readonly Dictionary<string, Func<...>>`; no `MakeGenericMethod` at runtime (IL2CPP safe); ZScript generic functions can forward `T` transparently; binding exposes only Unity's actual API — no invented convenience wrappers; unknown type names return empty array or raise ZScript error; codegen emits a build-time warning listing covered types
-- [ ] `[ZScriptExport(Name = "MyAlias")]` optional name override for the ZScript-facing identifier
-- [ ] Methods marked `[ZScriptHide]` are excluded from codegen output
+- [x] MSBuild / Unity Editor source generator: scans all assemblies for types tagged `[ZScriptExport]`
+- [x] For each exported type: generates a `register_<TypeName>(VM& vm)` C++ snippet and a C# dispatch stub — same name-preserving approach as built-in codegen
+- [x] Supports: methods, get/set properties, public fields — all three surface as plain `obj.Name` / `obj.Name = v` in ZScript via `__index`/`__newindex`
+- [x] Pure C# classes (non-MonoBehaviour): `__call` metamethod registered as constructor — `MyClass()` in ZScript calls `new MyClass()` in C#; `ZsObjectPool` holds a strong reference so C# GC does not collect the object while ZScript holds the handle
+- [x] MonoBehaviour classes: `__call` disabled (engine manages instantiation via `AddComponent`); ZScript receives the handle from C# side after `AddComponent` completes
+- [x] Handle release: when ZScript GC drops the last reference to a handle, `zs_value_free()` calls `pool.Release(id)` — the strong C# reference is dropped and GC can collect the object
+- [x] Static classes (e.g. `Physics`, `Time`, `Input`, `Screen`, `Mathf`): registered as a global ZScript table (no object handle, no `__call`); static methods → table functions; static fields/properties → `__index`/`__newindex` on the table; `Time.deltaTime`, `Input.mousePosition`, `Physics.gravity` etc. work identically to C#
+- [x] Generic methods (e.g. `GameObject.FindObjectsWithType<T>()`, `GetComponent<T>()`): ZScript's own generic syntax works naturally — `FindObjectsWithType<Camera>()` passes the `Camera` class table as `T`; native binding reads `T.__name` to get the type name string and dispatches into a pre-generated C# `static readonly Dictionary<string, Func<...>>`; no `MakeGenericMethod` at runtime (IL2CPP safe); ZScript generic functions can forward `T` transparently; binding exposes only Unity's actual API — no invented convenience wrappers; unknown type names return empty array or raise ZScript error; codegen emits a build-time warning listing covered types
+- [x] `[ZScriptExport(Name = "MyAlias")]` optional name override for the ZScript-facing identifier
+- [x] Methods marked `[ZScriptHide]` are excluded from codegen output
 
 #### Coroutine / async support (parity with Unity Lua)
-- [ ] ZScript coroutine type — `coroutine.create(fn)`, `coroutine.resume(co)`, `coroutine.yield(value)` mirroring Lua coroutine API; VM adds a coroutine frame stack alongside the call frame stack
-- [ ] Unity coroutine bridge — `StartCoroutine(fn)` in ZScript starts a Unity `IEnumerator` coroutine; the ZScript coroutine is resumed each frame until it returns; `yield WaitForSeconds(n)`, `yield WaitForEndOfFrame()`, `yield WaitForFixedUpdate()` yield values recognised by the bridge and forwarded to Unity's scheduler
-- [ ] `yield WaitUntil(fn)` and `yield WaitWhile(fn)` — predicate-based yield; ZScript closure passed as predicate, evaluated each frame by Unity
-- [ ] `StopCoroutine(handle)` — cancel a running ZScript coroutine by handle
+- [x] ZScript coroutine type — `coroutine.create(fn)`, `coroutine.resume(co)`, `coroutine.yield(value)` mirroring Lua coroutine API; VM adds a coroutine frame stack alongside the call frame stack
+- [x] Unity coroutine bridge — `StartCoroutine(fn)` in ZScript starts a Unity `IEnumerator` coroutine; the ZScript coroutine is resumed each frame until it returns; `yield WaitForSeconds(n)`, `yield WaitForEndOfFrame()`, `yield WaitForFixedUpdate()` yield values recognised by the bridge and forwarded to Unity's scheduler; `ZsCoroutineBridge : IEnumerator` wraps a ZScript coroutine; `RegisterYieldHelpers()` loads ZScript factory functions + registers `StartCoroutine`/`StopCoroutine` natives; C API: `zs_coroutine_create`, `zs_coroutine_resume`, `zs_coroutine_status`, `zs_vm_get_global`
+- [x] `yield WaitUntil(fn)` and `yield WaitWhile(fn)` — predicate-based yield; ZScript closure passed as predicate, evaluated each frame by Unity
+- [x] `StopCoroutine(handle)` — cancel a running ZScript coroutine by handle
 
 #### C# event → ZScript delegate bridging
 - [ ] `UnityEvent` binding — `button.onClick` returns a `UnityEvent` proxy handle; the proxy exposes `AddListener(fn)`, `RemoveListener(fn)`, `RemoveAllListeners()`, `Invoke()` as methods; C# side wraps the ZScript closure in a `UnityAction` on `AddListener`, stores it keyed by closure identity for later `RemoveListener` lookup
