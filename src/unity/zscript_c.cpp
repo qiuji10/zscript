@@ -368,6 +368,120 @@ ZsValue zs_value_clone(ZsValue val) {
 }
 
 // ===========================================================================
+// Value utilities
+// ===========================================================================
+int64_t zs_value_identity(ZsValue val) {
+    if (!val) return 0;
+    using namespace zscript;
+    auto& v = as_box(val)->v;
+    switch (v.tag) {
+        case Value::Tag::Table:     return (int64_t)(uintptr_t)v.table_ptr.get();
+        case Value::Tag::Closure:   return (int64_t)(uintptr_t)v.closure_ptr.get();
+        case Value::Tag::Native:    return (int64_t)(uintptr_t)v.native_ptr.get();
+        case Value::Tag::Coroutine: return (int64_t)(uintptr_t)v.coroutine_ptr.get();
+        default: return 0; // value types have no stable heap identity
+    }
+}
+
+int zs_value_invoke(ZsVM vm_handle, ZsValue fn,
+                    int argc, ZsValue* argv,
+                    ZsValue* out_result,
+                    char* err_buf, int err_len) {
+    using namespace zscript;
+    VM* vm = as_vm(vm_handle);
+    Value& fn_val = as_box(fn)->v;
+    if (!fn_val.is_closure() && !fn_val.is_native()) {
+        write_err("zs_value_invoke: value is not callable", err_buf, err_len);
+        return 0;
+    }
+    std::vector<Value> args;
+    args.reserve((size_t)argc);
+    for (int i = 0; i < argc; ++i)
+        args.push_back(as_box(argv[i])->v);
+    try {
+        auto results = vm->invoke_from_native(fn_val, std::move(args));
+        if (out_result)
+            *out_result = new ZsValueBox(results.empty() ? Value::nil() : results[0]);
+        return 1;
+    } catch (RuntimeError& e) {
+        write_err(e.message, err_buf, err_len);
+        return 0;
+    } catch (...) {
+        write_err("zs_value_invoke: unknown error", err_buf, err_len);
+        return 0;
+    }
+}
+
+int zs_vm_invoke_method(ZsVM vm_handle, ZsValue obj_val,
+                        const char* method,
+                        int argc, ZsValue* argv,
+                        ZsValue* out_result,
+                        char* err_buf, int err_len) {
+    using namespace zscript;
+    VM* vm = as_vm(vm_handle);
+    Value& obj = as_box(obj_val)->v;
+
+    Value method_fn;
+    if (obj.is_table()) {
+        method_fn = obj.as_table()->get(method);
+        if (method_fn.is_nil()) {
+            // Try __index metamethod.
+            Value idx_mm = obj.as_table()->get("__index");
+            if (idx_mm.is_closure() || idx_mm.is_native()) {
+                auto res = vm->invoke_from_native(idx_mm,
+                    {obj, Value::from_string(method)});
+                if (!res.empty()) method_fn = res[0];
+            }
+        }
+    }
+
+    if (method_fn.is_nil()) {
+        write_err(std::string("method '") + method + "' not found", err_buf, err_len);
+        return 0;
+    }
+
+    // Pass obj as implicit first argument (self).
+    std::vector<Value> args;
+    args.push_back(obj);
+    for (int i = 0; i < argc; ++i)
+        args.push_back(as_box(argv[i])->v);
+
+    try {
+        auto results = vm->invoke_from_native(method_fn, std::move(args));
+        if (out_result)
+            *out_result = new ZsValueBox(results.empty() ? Value::nil() : results[0]);
+        return 1;
+    } catch (RuntimeError& e) {
+        write_err(e.message, err_buf, err_len);
+        return 0;
+    } catch (...) {
+        write_err("zs_vm_invoke_method: unknown error", err_buf, err_len);
+        return 0;
+    }
+}
+
+// ===========================================================================
+// Table construction
+// ===========================================================================
+ZsValue zs_table_new(void) {
+    return new ZsValueBox(zscript::Value::from_table());
+}
+
+void zs_table_set_value(ZsValue tbl, const char* key, ZsValue val) {
+    if (!tbl || !val) return;
+    zscript::Value& t = as_box(tbl)->v;
+    if (!t.is_table()) return;
+    t.as_table()->set(key, as_box(val)->v);
+}
+
+void zs_table_set_fn(ZsValue tbl, const char* key, ZsNativeFn fn, ZsVM vm_handle) {
+    if (!tbl || !fn) return;
+    zscript::Value& t = as_box(tbl)->v;
+    if (!t.is_table()) return;
+    t.as_table()->set(key, wrap_native(key, fn, vm_handle));
+}
+
+// ===========================================================================
 // Coroutine API
 // ===========================================================================
 

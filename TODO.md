@@ -237,17 +237,17 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] `StopCoroutine(handle)` — cancel a running ZScript coroutine by handle
 
 #### C# event → ZScript delegate bridging
-- [ ] `UnityEvent` binding — `button.onClick` returns a `UnityEvent` proxy handle; the proxy exposes `AddListener(fn)`, `RemoveListener(fn)`, `RemoveAllListeners()`, `Invoke()` as methods; C# side wraps the ZScript closure in a `UnityAction` on `AddListener`, stores it keyed by closure identity for later `RemoveListener` lookup
-- [ ] Typed `UnityEvent<T>` binding — `slider.onValueChanged` returns a `UnityEvent<float>` proxy; `AddListener(fn(value) { ... })` wraps the closure in a `UnityAction<float>`; argument marshalled through C API when the event fires
-- [ ] `UnityEvent<T0,T1>` variants — same pattern for two-argument events
+- [x] `UnityEvent` binding — `ZsUnityEvent` wraps a `UnityEvent`; `CreateProxy()` returns a ZScript table with `AddListener(fn)→id`, `RemoveListener(id)`, `RemoveAllListeners()`, `Invoke()`; listener registry maps id→(cloned ZsValueHandle, UnityAction); `ZsMarshal` provides common T→ZsValue converters
+- [x] Typed `UnityEvent<T>` binding — `ZsUnityEvent<T>` with user-supplied `Func<T,IntPtr>` marshal delegate; fires ZScript closure with the marshalled arg when the event fires
+- [x] `UnityEvent<T0,T1>` variants — `ZsUnityEvent<T0,T1>` with two marshal delegates
 - [ ] C# `event` (keyword) subscription — for C# `event Action` / `event Action<T>` fields on exported types, ZScript `+=`/`-=` delegate syntax applies (distinct from `UnityEvent` which uses `AddListener`); generated adapter wraps ZScript closure in a managed `static readonly` delegate field (IL2CPP safe)
 - [ ] `SceneManager.sceneLoaded` / `SceneManager.sceneUnloaded` — C# `event Action<Scene, LoadSceneMode>`; subscribable via ZScript `+=`/`-=`
-- [ ] Lifecycle event callbacks for `@unity.component` classes — Unity calls `Start()`, `Update()`, `FixedUpdate()`, `LateUpdate()`, `OnDestroy()`, `OnEnable()`, `OnDisable()` on the generated MonoBehaviour bridge which forwards each call into the ZScript component's matching function if defined; function names are exact Unity names
+- [x] Lifecycle event callbacks for `@unity.component` classes — `ZsComponentBridge : MonoBehaviour` forwards `Awake`, `Start`, `Update`, `FixedUpdate`, `LateUpdate`, `OnEnable`, `OnDisable`, `OnDestroy` into ZScript instance via `zs_vm_invoke_method`; `ZScriptVM.AttachComponent(go, className)` instantiates the class and attaches the bridge; C API additions: `zs_vm_invoke_method`, `zs_value_invoke`, `zs_value_identity`, `zs_table_new`, `zs_table_set_value`, `zs_table_set_fn`
 
 #### Unity physics + collision callbacks
-- [ ] `OnCollisionEnter(collision)`, `OnCollisionStay(collision)`, `OnCollisionExit(collision)` — forwarded into ZScript component function of same name; `collision` passed as a bound `Collision` object handle
-- [ ] `OnTriggerEnter(other)`, `OnTriggerStay(other)`, `OnTriggerExit(other)` — same pattern; `other` is a `Collider` handle
-- [ ] `OnCollisionEnter2D` / `OnTriggerEnter2D` variants — 2D physics equivalents
+- [x] `OnCollisionEnter(collision)`, `OnCollisionStay(collision)`, `OnCollisionExit(collision)` — forwarded via `ZsComponentBridge`; `collision` passed as object handle (pooled in `ZsObjectPool`)
+- [x] `OnTriggerEnter(other)`, `OnTriggerStay(other)`, `OnTriggerExit(other)` — same pattern; `other` is a `Collider` handle
+- [x] `OnCollisionEnter2D` / `OnTriggerEnter2D` variants — all six 2D equivalents forwarded in `ZsComponentBridge`
 
 #### Destroyed object safety
 - [ ] `IsValid(obj)` built-in in ZScript Unity layer — checks `obj != null` on C# side using Unity's overloaded `==`; returns `false` for destroyed `UnityEngine.Object` instances even if the handle integer is still live

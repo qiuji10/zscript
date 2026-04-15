@@ -178,6 +178,35 @@ namespace ZScript
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr zs_vm_get_global(IntPtr vm, string name);
 
+        // Value utilities
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern long zs_value_identity(IntPtr val);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int zs_value_invoke(
+            IntPtr vm, IntPtr fn,
+            int argc, IntPtr[] argv,
+            out IntPtr out_result,
+            [Out] byte[] errBuf, int errLen);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int zs_vm_invoke_method(
+            IntPtr vm, IntPtr obj,
+            string method,
+            int argc, IntPtr[] argv,
+            out IntPtr out_result,
+            [Out] byte[] errBuf, int errLen);
+
+        // Table construction
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr zs_table_new();
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void zs_table_set_value(IntPtr tbl, string key, IntPtr val);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void zs_table_set_fn(IntPtr tbl, string key, ZsNativeFn fn, IntPtr vm);
+
         // Coroutine API
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr zs_coroutine_create(IntPtr vm, IntPtr fn_val);

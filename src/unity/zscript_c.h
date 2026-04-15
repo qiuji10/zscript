@@ -167,6 +167,41 @@ void    zs_value_free(ZsValue val);
 ZsValue zs_value_clone(ZsValue val);
 
 // ---------------------------------------------------------------------------
+// Value utilities
+// ---------------------------------------------------------------------------
+// Returns a stable integer that identifies the inner heap object of a value
+// (the shared_ptr raw pointer cast to int64). Suitable for use as a map key
+// to detect "same closure / same table" identity. Returns 0 for value types
+// (nil, bool, int, float, string).
+int64_t zs_value_identity(ZsValue val);
+
+// Call any callable ZsValue (closure or native) with the given args.
+// out_result receives the first return value (caller must free).
+// Returns 1 on success, 0 on error (writes message into err_buf).
+int zs_value_invoke(ZsVM vm, ZsValue fn,
+                    int argc, ZsValue* argv,
+                    ZsValue* out_result,
+                    char* err_buf, int err_len);
+
+// Call a named method on a ZScript table value (looks up key, then calls with
+// obj as implicit first argument). Returns 1 on success, 0 on error.
+int zs_vm_invoke_method(ZsVM vm, ZsValue obj,
+                        const char* method,
+                        int argc, ZsValue* argv,
+                        ZsValue* out_result,
+                        char* err_buf, int err_len);
+
+// ---------------------------------------------------------------------------
+// Table construction  (for building ZScript values from C#)
+// ---------------------------------------------------------------------------
+// Create a new empty ZScript table (plain table, not an object proxy).
+ZsValue zs_table_new(void);
+// Set a string-keyed field on a table to an arbitrary value.
+void    zs_table_set_value(ZsValue tbl, const char* key, ZsValue val);
+// Set a string-keyed field to a native C function (wraps fn in from_native).
+void    zs_table_set_fn(ZsValue tbl, const char* key, ZsNativeFn fn, ZsVM vm);
+
+// ---------------------------------------------------------------------------
 // Coroutine API
 // ---------------------------------------------------------------------------
 // Create a coroutine from a ZScript closure value.

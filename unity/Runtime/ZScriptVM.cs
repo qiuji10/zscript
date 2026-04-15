@@ -130,6 +130,50 @@ namespace ZScript
             if (co != null) StopCoroutine(co);
         }
 
+        // ----------------------------------------------------------------
+        // Component bridge
+        // ----------------------------------------------------------------
+        /// <summary>
+        /// Instantiate a ZScript class by name and attach a
+        /// <see cref="ZsComponentBridge"/> to the given GameObject.
+        /// The ZScript class constructor is called with no arguments.
+        /// </summary>
+        /// <param name="go">Target GameObject.</param>
+        /// <param name="className">
+        ///   Name of the ZScript global that holds the class table.
+        /// </param>
+        /// <returns>The attached <see cref="ZsComponentBridge"/>, or null on error.</returns>
+        public ZsComponentBridge AttachComponent(GameObject go, string className)
+        {
+            // Get the class table.
+            using var classTbl = new ZsValueHandle(ZsNative.zs_vm_get_global(_vm, className));
+            if (classTbl.Type == ZsType.Nil)
+            {
+                Debug.LogError($"[ZScript] AttachComponent: class '{className}' not found.");
+                return null;
+            }
+
+            // Instantiate: call the class table as a constructor (__call metamethod).
+            byte[] err = new byte[256];
+            IntPtr outRaw;
+            int ok = ZsNative.zs_value_invoke(
+                _vm, classTbl.Raw,
+                0, Array.Empty<IntPtr>(),
+                out outRaw, err, err.Length);
+            if (ok == 0 || outRaw == IntPtr.Zero)
+            {
+                Debug.LogError($"[ZScript] AttachComponent: '{className}()' failed: " +
+                               System.Text.Encoding.UTF8.GetString(err).TrimEnd('\0'));
+                return null;
+            }
+            var instance = new ZsValueHandle(outRaw);
+
+            var bridge = go.AddComponent<ZsComponentBridge>();
+            bridge.ScriptVM = this;
+            bridge.Instance = instance;
+            return bridge;
+        }
+
         /// <summary>Create a ZScript proxy table for the given C# object.</summary>
         public ZsValueHandle WrapObject(object obj)
         {
