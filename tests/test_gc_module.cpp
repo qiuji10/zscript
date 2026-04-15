@@ -573,3 +573,81 @@ TEST_CASE("native function returning string", "[binding][integration]") {
     REQUIRE(ctx.run("var r = make_greeting(\"ZScript\")"));
     CHECK(ctx.g("r").as_string() == "Hello, ZScript!");
 }
+
+// ---------------------------------------------------------------------------
+// Object handle system
+// ---------------------------------------------------------------------------
+
+TEST_CASE("push_object_handle creates proxy with __handle", "[handle]") {
+    VM vm;
+    vm.open_stdlib();
+    Value proxy = vm.push_object_handle(42);
+    CHECK(proxy.is_table());
+    CHECK(vm.get_object_handle(proxy) == 42);
+}
+
+TEST_CASE("get_object_handle returns -1 for non-handle values", "[handle]") {
+    VM vm;
+    vm.open_stdlib();
+    CHECK(vm.get_object_handle(Value::nil())       == -1);
+    CHECK(vm.get_object_handle(Value::from_int(5)) == -1);
+    CHECK(vm.get_object_handle(Value::from_table()) == -1); // plain table, no __handle
+}
+
+TEST_CASE("push_object_handle gc_hook fires on collection", "[handle]") {
+    bool released = false;
+    int64_t released_id = -1;
+    {
+        VM vm;
+        vm.open_stdlib();
+        vm.set_object_handle_release([&](int64_t id) {
+            released    = true;
+            released_id = id;
+        });
+        // Create proxy but don't keep any ZScript reference to it
+        vm.push_object_handle(99);
+        // proxy Value is a temporary — shared_ptr refcount drops to 0 here
+    }
+    // ZTable destructor fires gc_hook
+    CHECK(released    == true);
+    CHECK(released_id == 99);
+}
+
+TEST_CASE("proxy table accessible from ZScript via __handle field", "[handle]") {
+    VM vm;
+    vm.open_stdlib();
+    Value proxy = vm.push_object_handle(7);
+    vm.set_global("obj", proxy);
+
+    // ZScript can read __handle directly
+    Lexer lexer("var h = obj.__handle");
+    auto tokens = lexer.tokenize();
+    Parser parser(std::move(tokens));
+    auto prog = parser.parse();
+    Compiler compiler;
+    auto chunk = compiler.compile(prog, "<test>");
+    REQUIRE(vm.execute(*chunk));
+    CHECK(vm.get_global("h").as_int() == 7);
+}
+
+TEST_CASE("proxy table supports metamethods set after handle creation", "[handle]") {
+    VM vm;
+    vm.open_stdlib();
+    Value proxy = vm.push_object_handle(3);
+
+    // Set a __index metamethod after handle creation (simulates type binding)
+    proxy.as_table()->set("__index", Value::from_native("idx", [](std::vector<Value> args) -> std::vector<Value> {
+        // Return a fixed string for any key access
+        return {Value::from_string("bound_value")};
+    }));
+    vm.set_global("obj", proxy);
+
+    Lexer lexer("var v = obj.anything");
+    auto tokens = lexer.tokenize();
+    Parser parser(std::move(tokens));
+    auto prog = parser.parse();
+    Compiler compiler;
+    auto chunk = compiler.compile(prog, "<test>");
+    REQUIRE(vm.execute(*chunk));
+    CHECK(vm.get_global("v").as_string() == "bound_value");
+}

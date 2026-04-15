@@ -78,6 +78,31 @@ void VM::gc_collect() {
 }
 
 // ===========================================================================
+// Object handle system
+// ===========================================================================
+Value VM::push_object_handle(int64_t id) {
+    Value proxy = Value::from_table();
+    auto* tbl   = proxy.as_table();
+    tbl->set("__handle", Value::from_int(id));
+
+    // gc_hook: called from ~ZTable() when this proxy is collected.
+    // Capture id and a copy of the release fn (handle_release_ may change).
+    HandleReleaseFn release_fn = handle_release_;
+    if (release_fn) {
+        tbl->gc_hook = [id, release_fn]() { release_fn(id); };
+    }
+
+    gc_.track(tbl);
+    return proxy;
+}
+
+int64_t VM::get_object_handle(const Value& val) const {
+    if (!val.is_table()) return -1;
+    Value h = val.as_table()->get("__handle");
+    return h.is_int() ? h.as_int() : -1;
+}
+
+// ===========================================================================
 // Module system
 // ===========================================================================
 bool VM::import_module(const std::string& name) {
@@ -214,7 +239,10 @@ bool VM::load_file(const std::string& path) {
             }
         return false;
     }
-    return execute(*chunk);
+    bool ok = execute(*chunk);
+    // Keep chunk alive so ZClosure::proto raw pointers remain valid.
+    owned_chunks_.push_back(std::move(chunk));
+    return ok;
 }
 
 void VM::open_stdlib() {

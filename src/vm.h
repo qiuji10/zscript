@@ -124,6 +124,33 @@ public:
     void gc_collect();
     void track(GcObject* obj, size_t sz = 64) { gc_.track(obj, sz); }
 
+    // Transfer ownership of a compiled chunk to the VM so that ZClosure::proto
+    // raw pointers into it remain valid for the VM's lifetime.
+    // Called by load_file() internally and by the C API after zs_vm_load_source().
+    void take_chunk(std::unique_ptr<Chunk> chunk) {
+        owned_chunks_.push_back(std::move(chunk));
+    }
+
+    // --- Object handle system (Unity / engine plugin bridge) ---
+    // Register the callback fired when a proxy table is GC'd.
+    // Called once by the host (C API / C# ZsObjectPool) before any handles are created.
+    using HandleReleaseFn = std::function<void(int64_t id)>;
+    void set_object_handle_release(HandleReleaseFn fn) {
+        handle_release_ = std::move(fn);
+    }
+
+    // Create a ZScript proxy table for a Unity object with the given integer handle.
+    // The table has:
+    //   __handle  = id (int)
+    //   gc_hook   = fires handle_release_(id) when the table is collected
+    // Type-specific metamethods (__index, __newindex, …) are NOT set here;
+    // per-type binding functions (generated or hand-written) set them afterward.
+    Value push_object_handle(int64_t id);
+
+    // Extract the integer handle from a proxy table created by push_object_handle().
+    // Returns -1 if val is not a handle-bearing table.
+    int64_t get_object_handle(const Value& val) const;
+
     const RuntimeError& last_error() const { return last_error_; }
 
     // --- debugger ---
@@ -184,6 +211,7 @@ private:
     GC            gc_;
     ModuleLoader  loader_;
     RuntimeError  last_error_;
+    HandleReleaseFn handle_release_; // fired by gc_hook when a proxy table is collected
 
     std::unique_ptr<HotpatchManager> hotpatch_;
 
@@ -219,6 +247,10 @@ private:
     // Walk all proto constant tables in a chunk and replace string Values with
     // their interned counterparts so identical strings across protos share one object.
     void  intern_chunk_strings(Chunk& chunk);
+
+    // Chunks compiled from load_file() / zs_vm_load_source() — kept alive so
+    // ZClosure::proto raw pointers into them remain valid for the VM's lifetime.
+    std::vector<std::unique_ptr<Chunk>> owned_chunks_;
 
     // Intern table: string data → weak_ptr so entries expire when unreferenced.
     std::unordered_map<std::string, std::weak_ptr<ZString>> intern_table_;

@@ -54,6 +54,77 @@ if(APPLE)
     target_link_libraries(zscript_core PUBLIC "-framework CoreServices")
 endif()
 
+# ---------------------------------------------------------------------------
+# Unity C API shared library (zscript_unity)
+# ---------------------------------------------------------------------------
+option(ZSCRIPT_UNITY "Build the Unity plugin shared library" OFF)
+
+if(ZSCRIPT_UNITY)
+    add_library(zscript_unity SHARED
+        src/unity/zscript_c.cpp
+    )
+    target_include_directories(zscript_unity PUBLIC src src/unity)
+    target_link_libraries(zscript_unity PRIVATE zscript_core)
+
+    # Export only the public zs_* C symbols; hide all internal C++ symbols.
+    set_target_properties(zscript_unity PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+    )
+
+    # ---------------------------------------------------------------------------
+    # Platform-specific output name / suffix and Unity Plugins/ install path
+    # ---------------------------------------------------------------------------
+    set(UNITY_PLUGINS_DIR "${CMAKE_SOURCE_DIR}/unity/Plugins" CACHE PATH
+        "Root of the Unity project's Plugins/ folder")
+
+    if(WIN32)
+        set_target_properties(zscript_unity PROPERTIES OUTPUT_NAME "zscript_unity")
+        if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+            set(_unity_dest "${UNITY_PLUGINS_DIR}/x86_64")
+        else()
+            set(_unity_dest "${UNITY_PLUGINS_DIR}/x86")
+        endif()
+    elseif(APPLE)
+        # Unity editor on macOS expects .bundle; player builds use .dylib.
+        # Default to .bundle (editor workflow); override SUFFIX externally for players.
+        set_target_properties(zscript_unity PROPERTIES
+            OUTPUT_NAME "zscript_unity"
+            SUFFIX      ".bundle"
+        )
+        set(_unity_dest "${UNITY_PLUGINS_DIR}/macOS")
+    elseif(ANDROID)
+        set_target_properties(zscript_unity PROPERTIES OUTPUT_NAME "zscript_unity")
+        # Android ABI is set by the NDK toolchain (e.g. arm64-v8a, x86_64).
+        set(_unity_dest "${UNITY_PLUGINS_DIR}/Android/libs/${ANDROID_ABI}")
+    elseif(IOS)
+        # iOS requires a static library (App Store forbids dynamic loading).
+        set_target_properties(zscript_unity PROPERTIES
+            OUTPUT_NAME "zscript_unity"
+        )
+        set(_unity_dest "${UNITY_PLUGINS_DIR}/iOS")
+    else()
+        # Linux
+        set_target_properties(zscript_unity PROPERTIES OUTPUT_NAME "zscript_unity")
+        if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+            set(_unity_dest "${UNITY_PLUGINS_DIR}/x86_64")
+        else()
+            set(_unity_dest "${UNITY_PLUGINS_DIR}/x86")
+        endif()
+    endif()
+
+    # Install rule: `cmake --install build` copies the built library to the
+    # Unity project's Plugins/ folder automatically.
+    install(TARGETS zscript_unity
+        LIBRARY  DESTINATION "${_unity_dest}"
+        RUNTIME  DESTINATION "${_unity_dest}"  # .dll on Windows
+    )
+    # Public header — useful when embedding the C API in native Unity plugins.
+    install(FILES src/unity/zscript_c.h
+        DESTINATION "${UNITY_PLUGINS_DIR}/../include"
+    )
+endif()
+
 # CLI driver
 add_executable(zsc
     src/main.cpp
@@ -141,6 +212,14 @@ zscript_discover_tests(test_generics)
 add_executable(test_tags tests/test_tags.cpp)
 target_link_libraries(test_tags PRIVATE zscript_core Catch2::Catch2WithMain)
 zscript_discover_tests(test_tags)
+
+add_executable(test_c_api tests/test_c_api.cpp src/unity/zscript_c.cpp)
+target_include_directories(test_c_api PRIVATE src src/unity)
+target_link_libraries(test_c_api PRIVATE zscript_core Catch2::Catch2WithMain)
+if(APPLE)
+    target_link_libraries(test_c_api PRIVATE "-framework CoreServices")
+endif()
+zscript_discover_tests(test_c_api)
 
 # ---------------------------------------------------------------------------
 # Fuzzer (libFuzzer) — opt-in via -DZSCRIPT_FUZZ=ON, requires clang.

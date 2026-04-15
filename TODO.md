@@ -172,37 +172,37 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 ### Unity Plugin
 
 #### VM-level prerequisites
-- [ ] All items in "VM Extensions" section of Phase 2 must be completed first (`__index`, `__newindex`, `__call`, `__eq`, `__gc` hook, coroutines)
-- [ ] `vm.push_object_handle(id)` / `vm.get_object_handle(val)` — opaque integer handle system for passing Unity object references across the C boundary without GC interaction; Unity object proxy is a `ZTable` with `__handle` int key + metamethods set + `gc_hook` wired to `pool.Release(id)`
+- [x] All items in "VM Extensions" section of Phase 2 must be completed first (`__index`, `__newindex`, `__call`, `__eq`, `__gc` hook, coroutines)
+- [x] `vm.push_object_handle(id)` / `vm.get_object_handle(val)` — opaque integer handle system; proxy is a `ZTable` with `__handle` int key + `gc_hook → pool.Release(id)`; `vm.set_object_handle_release(fn)` registers the callback; `vm.take_chunk()` keeps compiled chunks alive so `ZClosure::proto` pointers remain valid
 
 #### C API (`src/unity/zscript_c.h` + `src/unity/zscript_c.cpp`)
-- [ ] Opaque handle types: `typedef void* ZsVM; typedef void* ZsValue;` — safe across P/Invoke
-- [ ] VM lifecycle: `zs_vm_new()`, `zs_vm_free(vm)`, `zs_vm_open_stdlib(vm)`
-- [ ] Script execution: `zs_vm_load_file(vm, path, err_buf, err_len)`, `zs_vm_load_source(vm, name, src, err_buf, err_len)`
-- [ ] Function calls: `zs_vm_call(vm, name, argc, argv, out_result)` — takes array of `ZsValue`, returns single `ZsValue`
-- [ ] Value constructors: `zs_value_nil()`, `zs_value_bool(b)`, `zs_value_int(n)`, `zs_value_float(f)`, `zs_value_string(s)`, `zs_value_object(handle_id)`
-- [ ] Value accessors: `zs_value_type(v)`, `zs_value_as_bool(v)`, `zs_value_as_int(v)`, `zs_value_as_float(v)`, `zs_value_as_string(v)`, `zs_value_as_object(v)`
-- [ ] Value lifetime: `zs_value_free(v)`, `zs_value_clone(v)` — C# side manages `ZsValueHandle : SafeHandle`
-- [ ] Native function registration: `zs_vm_register_fn(vm, name, fn_ptr)` — `fn_ptr` is `ZsNativeFn = ZsValue(*)(ZsVM, int argc, ZsValue* argv)`
-- [ ] Hotpatch: `zs_vm_enable_hotpatch(vm, dir)`, `zs_vm_poll(vm)` — callable from `Update()`
-- [ ] Tag system: `zs_vm_add_tag(vm, tag)`, `zs_vm_remove_tag(vm, tag)`, `zs_vm_has_tag(vm, tag)`
-- [ ] Error query: `zs_vm_last_error(vm, buf, len)` — retrieve last error message after a failed call
+- [x] Opaque handle types: `typedef void* ZsVM; typedef void* ZsValue;` — safe across P/Invoke
+- [x] VM lifecycle: `zs_vm_new()`, `zs_vm_free(vm)`, `zs_vm_open_stdlib(vm)`
+- [x] Script execution: `zs_vm_load_file(vm, path, err_buf, err_len)`, `zs_vm_load_source(vm, name, src, err_buf, err_len)`
+- [x] Function calls: `zs_vm_call(vm, name, argc, argv, out_result)` — takes array of `ZsValue`, returns single `ZsValue`
+- [x] Value constructors: `zs_value_nil()`, `zs_value_bool(b)`, `zs_value_int(n)`, `zs_value_float(f)`, `zs_value_string(s)`, `zs_value_object(handle_id)`
+- [x] Value accessors: `zs_value_type(v)`, `zs_value_as_bool(v)`, `zs_value_as_int(v)`, `zs_value_as_float(v)`, `zs_value_as_string(v)`, `zs_value_as_object(v)`
+- [x] Value lifetime: `zs_value_free(v)`, `zs_value_clone(v)` — C# side manages `ZsValueHandle : SafeHandle`
+- [x] Native function registration: `zs_vm_register_fn(vm, name, fn_ptr)` — `fn_ptr` is `ZsNativeFn = ZsValue(*)(ZsVM, int argc, ZsValue* argv)`
+- [x] Hotpatch: `zs_vm_enable_hotpatch(vm, dir)`, `zs_vm_poll(vm)` — callable from `Update()`
+- [x] Tag system: `zs_vm_add_tag(vm, tag)`, `zs_vm_remove_tag(vm, tag)`, `zs_vm_has_tag(vm, tag)`
+- [x] Error query: `zs_vm_last_error(vm, buf, len)` — retrieve last error message after a failed call
 
 #### Native plugin build
-- [ ] CMake shared library target `zscript_unity` — links core ZScript, exports only `zs_*` symbols
-- [ ] Windows: outputs `zscript_unity.dll` + import lib; CI copies to `unity/Plugins/x86_64/`
-- [ ] macOS: outputs `zscript_unity.bundle` (Unity expects `.bundle` for editor); CI copies to `unity/Plugins/`
-- [ ] Linux: outputs `libzscript_unity.so`; CI copies to `unity/Plugins/x86_64/`
-- [ ] Android (arm64-v8a): cross-compile with NDK toolchain; CI copies to `unity/Plugins/Android/libs/arm64-v8a/`
-- [ ] iOS: static `.a` (dynamic loading disallowed on iOS App Store); CI copies to `unity/Plugins/iOS/`
-- [ ] `unity/Plugins/**/*.meta` files — Unity plugin importer settings (platform, architecture, CPU) committed alongside native libs
+- [x] CMake shared library target `zscript_unity` — opt-in via `-DZSCRIPT_UNITY=ON`; links core ZScript; `CXX_VISIBILITY_PRESET hidden` exports only `zs_*` symbols
+- [x] Windows: outputs `zscript_unity.dll`; install rule copies to `unity/Plugins/x86_64/`
+- [x] macOS: outputs `zscript_unity.bundle`; install rule copies to `unity/Plugins/macOS/`
+- [x] Linux: outputs `libzscript_unity.so`; install rule copies to `unity/Plugins/x86_64/`
+- [x] Android: CMake install rule targets `unity/Plugins/Android/libs/${ANDROID_ABI}/` (requires NDK toolchain)
+- [x] iOS: CMake install rule targets `unity/Plugins/iOS/` (static link)
+- [ ] `unity/Plugins/**/*.meta` files — Unity plugin importer settings committed alongside native libs
 
 #### C# runtime layer (`unity/Runtime/`)
-- [ ] `ZsValueHandle.cs` — `SafeHandle` subclass; `ReleaseHandle()` calls `zs_value_free()`; prevents leaks when C# GC collects the wrapper
-- [ ] `ZsVM.cs` — `[DllImport]` declarations for all `zs_*` C API functions; `const string Lib = "zscript_unity"`
-- [ ] `ZScriptVM.cs` — `MonoBehaviour`; owns a `ZsVM` handle; calls `zs_vm_poll()` in `Update()`; exposes `LoadFile()`, `Call()`, `AddTag()` to other components; `OnDestroy()` calls `zs_vm_free()`
+- [x] `ZsValueHandle.cs` — `SafeHandle` subclass; `ReleaseHandle()` calls `zs_value_free()`; factories for all value types; typed accessors
+- [x] `ZsVM.cs` — `[DllImport]` declarations for all `zs_*` C API functions; `const string Lib = "zscript_unity"`
+- [x] `ZScriptVM.cs` — `MonoBehaviour`; owns `ZsVM`; `Awake()` creates VM + wires handle release; `Start()` loads startup scripts + enables hotpatch; `Update()` calls `zs_vm_poll()`; `OnDestroy()` calls `zs_vm_free()`; exposes `LoadFile()`, `LoadSource()`, `Call()`, `AddTag()`, `WrapObject()`, `UnwrapObject<T>()`
 - [ ] `ZScriptModule.cs` — `ScriptableObject` asset that holds a `.zs` file reference; drag-and-drop in Inspector; `ZScriptVM` loads it on `Start()`
-- [ ] Object pool (`ZsObjectPool.cs`) — `List<object>` + `Dictionary<long, object>` (handle→object, object→handle); assigns monotonically increasing integer IDs; `Alloc(obj)`, `Get(id)`, `Release(id)`; no `GCHandle` pinning needed since C side only sees the integer
+- [x] Object pool (`ZsObjectPool.cs`) — `Dictionary<long, object>` + reverse map; thread-safe; `Alloc(obj)`, `Get<T>(id)`, `Release(id)`; no `GCHandle` pinning needed since C side only sees the integer
 
 #### Built-in Unity type bindings — edit-time codegen tool (`tools/UnityBindingGen/`)
 - [ ] C# console tool (`UnityBindingGen.exe`) using Roslyn (`Microsoft.CodeAnalysis`) — invoked from Unity Editor menu or CI; zero runtime reflection
