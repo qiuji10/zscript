@@ -1,0 +1,20 @@
+{
+  "name": "ZScript.Tests.EditMode",
+  "rootNamespace": "ZScript.Tests",
+  "references": [
+    "ZScript.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "nunit.framework.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

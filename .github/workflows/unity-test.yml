@@ -1,0 +1,93 @@
+name: Unity EditMode Tests
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Security model (public repo, self-hosted runner on personal PC):
+#   1. Only push to main/engine-tooling and manual dispatch — never pull_request.
+#      This prevents fork PRs from running arbitrary code on your machine.
+#   2. `if: github.repository_owner == 'qiuji10'` guard on every job.
+#      Even if the workflow file is copied, it cannot run on a fork.
+#   3. GitHub Environment "unity-runner" — configure it in Settings → Environments
+#      with "Required reviewers: qiuji10" so every run needs your explicit approval.
+# ──────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [ main, engine-tooling ]
+    paths:
+      - 'src/**'
+      - 'unity/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/unity-test.yml'
+  workflow_dispatch:
+
+# Cancel in-progress runs on the same branch to avoid queuing on the runner.
+concurrency:
+  group: unity-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unity-test:
+    name: Build native + Run EditMode tests
+    # ── Security guard: only the repo owner's runs reach the self-hosted runner ──
+    if: github.repository_owner == 'qiuji10'
+    runs-on: [ self-hosted, windows, unity ]
+    environment: unity-runner          # ← requires manual approval in GitHub UI
+
+    env:
+      BUILD_DIR: build-unity
+      # Adjust this to wherever Unity 6 is installed on your PC.
+      # You can also set UNITY_PATH as a runner-level env var in the runner config.
+      UNITY_PATH: ${{ vars.UNITY_PATH || 'C:\Program Files\Unity\Hub\Editor\6000.3.9f1\Editor\Unity.exe' }}
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ── 2. Configure + build zscript_unity.dll ───────────────────────────────
+      - name: Configure CMake (MSVC x64)
+        shell: cmd
+        run: |
+          cmake -B %BUILD_DIR% -A x64 ^
+            -DZSCRIPT_UNITY=ON ^
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build zscript_unity
+        shell: cmd
+        run: cmake --build %BUILD_DIR% --config Release --target zscript_unity
+
+      - name: Install DLL into Plugins/
+        shell: cmd
+        run: cmake --install %BUILD_DIR% --config Release
+
+      # ── 3. Run Unity EditMode tests ──────────────────────────────────────────
+      - name: Run EditMode tests
+        shell: cmd
+        run: |
+          "%UNITY_PATH%" ^
+            -batchmode -nographics -quit ^
+            -projectPath unity\UnityProject ^
+            -runTests -testPlatform EditMode ^
+            -testResults unity\UnityProject\TestResults.xml ^
+            -logFile unity\UnityProject\UnityTest.log
+        # Unity exits non-zero on test failure — let the step fail naturally.
+
+      # ── 4. Upload results ─────────────────────────────────────────────────────
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-test-results
+          path: |
+            unity/UnityProject/TestResults.xml
+            unity/UnityProject/UnityTest.log
+
+      - name: Publish NUnit test results
+        if: always()
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: unity/UnityProject/TestResults.xml
+          check_name: Unity EditMode Tests
+          fail_on_failure: true

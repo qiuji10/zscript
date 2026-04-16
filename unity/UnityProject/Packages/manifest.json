@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "com.unity.test-framework": "1.4.5",
+    "com.zscript.runtime": "file:../../"
+  },
+  "testables": [
+    "com.zscript.runtime"
+  ]
+}

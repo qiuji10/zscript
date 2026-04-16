@@ -36,3 +36,12 @@ unity/Plugins/**/*.dll
 unity/Plugins/**/*.so
 unity/Plugins/**/*.dylib
 unity/Plugins/**/*.a
+
+# Unity project generated folders
+unity/UnityProject/Library/
+unity/UnityProject/Temp/
+unity/UnityProject/obj/
+unity/UnityProject/Logs/
+unity/UnityProject/UserSettings/
+unity/UnityProject/Recordings/
+unity/UnityProject/MemoryCaptures/

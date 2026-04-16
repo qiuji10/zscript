@@ -1,0 +1,11 @@
+{
+  "name": "com.zscript.runtime",
+  "version": "0.1.0",
+  "displayName": "ZScript Runtime",
+  "description": "ZScript scripting engine Unity plugin — runtime bindings and editor tools.",
+  "unity": "6000.0",
+  "author": {
+    "name": "qiuji10"
+  },
+  "dependencies": {}
+}
