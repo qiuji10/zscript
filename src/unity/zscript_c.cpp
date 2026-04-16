@@ -177,6 +177,10 @@ ZsValue zs_vm_get_global(ZsVM vm_handle, const char* name) {
     return new ZsValueBox(as_vm(vm_handle)->get_global(name));
 }
 
+void zs_vm_set_global(ZsVM vm_handle, const char* name, ZsValue val) {
+    as_vm(vm_handle)->set_global(name, val ? as_box(val)->v : zscript::Value::nil());
+}
+
 // ===========================================================================
 // Object handle system
 // ===========================================================================
@@ -560,4 +564,66 @@ int zs_coroutine_status(ZsVM /*vm*/, ZsValue co_val) {
         case ZCoroutine::Status::Dead:      return 2;
     }
     return 2;
+}
+
+// ===========================================================================
+// Annotation query
+// ===========================================================================
+
+int zs_vm_get_class_annotations(ZsVM vm_handle, const char* class_name,
+                                 char* buf, int buf_len)
+{
+    using namespace zscript;
+    if (!vm_handle || !class_name) return 0;
+    VM* vm = as_vm(vm_handle);
+    const auto& anns = vm->get_annotations(class_name);
+    if (anns.empty()) return 0;
+
+    if (buf && buf_len > 0) {
+        int written = 0;
+        for (size_t i = 0; i < anns.size(); ++i) {
+            std::string entry = anns[i].ns;
+            if (!anns[i].name.empty()) { entry += '.'; entry += anns[i].name; }
+            // Write NUL-terminated entry, leave room for final double-NUL.
+            int space = buf_len - written - 1;
+            if (space <= 0) break;
+            int n = (int)entry.size() < space ? (int)entry.size() : space;
+            std::memcpy(buf + written, entry.c_str(), (size_t)n);
+            written += n;
+            if (written < buf_len - 1) buf[written++] = '\0';
+        }
+        if (written < buf_len) buf[written] = '\0';
+    }
+    return (int)anns.size();
+}
+
+int zs_vm_find_annotated_classes(ZsVM vm_handle, const char* ns, const char* name,
+                                  char* buf, int buf_len)
+{
+    using namespace zscript;
+    if (!vm_handle || !ns) return 0;
+    VM* vm = as_vm(vm_handle);
+    std::string match_ns   = ns;
+    std::string match_name = name ? name : "";
+
+    int count   = 0;
+    int written = 0;
+    for (const auto& [cls, anns] : vm->all_annotations()) {
+        for (const auto& ann : anns) {
+            if (ann.ns == match_ns && (match_name.empty() || ann.name == match_name)) {
+                ++count;
+                if (buf && buf_len > 0) {
+                    int space = buf_len - written - 1;
+                    if (space <= 0) break;
+                    int n = (int)cls.size() < space ? (int)cls.size() : space;
+                    std::memcpy(buf + written, cls.c_str(), (size_t)n);
+                    written += n;
+                    if (written < buf_len - 1) buf[written++] = '\0';
+                }
+                break; // each class counted once even if annotated multiple times
+            }
+        }
+    }
+    if (buf && buf_len > 0 && written < buf_len) buf[written] = '\0';
+    return count;
 }

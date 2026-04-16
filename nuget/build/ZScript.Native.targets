@@ -1,0 +1,62 @@
+<!--
+  ZScript.Native.targets — MSBuild targets consumed by projects that reference
+  the ZScript.Native NuGet package.
+
+  Responsibilities:
+    1. Copy the correct platform native binary to the build output directory
+       so DllImport("zscript") resolves at runtime without PATH tricks.
+    2. For .NET 5+ / NativeAOT, register the native library path via
+       RuntimeIdentifier-aware logic so the runtime loader finds it.
+
+  The native binaries live inside the package under:
+    runtimes/<rid>/native/<libname>
+
+  MSBuild exposes them automatically through the ResolvedNativeAssets item
+  group (net5+) or via this target's manual copy for netstandard consumers.
+-->
+<Project>
+
+  <!-- Resolve the native library path for the current RID -->
+  <Target Name="ZScriptNativeCopyToOutput"
+          AfterTargets="ResolvePackageAssets"
+          Condition="'$(CopyLocalLockFileAssemblies)' != 'false'">
+
+    <PropertyGroup>
+      <!-- Determine the expected native lib filename by platform -->
+      <_ZsNativeFile Condition=" $([MSBuild]::IsOSPlatform('Windows')) ">zscript.dll</_ZsNativeFile>
+      <_ZsNativeFile Condition=" $([MSBuild]::IsOSPlatform('OSX')) ">libzscript.dylib</_ZsNativeFile>
+      <_ZsNativeFile Condition=" $([MSBuild]::IsOSPlatform('Linux')) ">libzscript.so</_ZsNativeFile>
+
+      <!-- RID folder -->
+      <_ZsRid Condition=" $([MSBuild]::IsOSPlatform('Windows')) ">win-x64</_ZsRid>
+      <_ZsRid Condition=" $([MSBuild]::IsOSPlatform('Linux')) ">linux-x64</_ZsRid>
+      <_ZsRid Condition=" $([MSBuild]::IsOSPlatform('OSX')) AND '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64' ">osx-arm64</_ZsRid>
+      <_ZsRid Condition=" $([MSBuild]::IsOSPlatform('OSX')) AND '$(_ZsRid)' == '' ">osx-x64</_ZsRid>
+
+      <_ZsNativeSrc>$(MSBuildThisFileDirectory)..\runtimes\$(_ZsRid)\native\$(_ZsNativeFile)</_ZsNativeSrc>
+    </PropertyGroup>
+
+    <!-- Copy native lib alongside managed output when building locally -->
+    <Copy SourceFiles="$(_ZsNativeSrc)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_ZsNativeSrc)')" />
+
+  </Target>
+
+  <!--
+    For publish scenarios, ensure the native file is included in the publish
+    output as well.  Registered as an additional content file.
+  -->
+  <Target Name="ZScriptNativeCopyToPublish"
+          AfterTargets="ResolveReferences"
+          Condition="'$(PublishDir)' != ''">
+
+    <Copy SourceFiles="$(_ZsNativeSrc)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_ZsNativeSrc)')" />
+
+  </Target>
+
+</Project>

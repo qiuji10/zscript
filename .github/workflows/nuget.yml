@@ -1,0 +1,242 @@
+name: NuGet Package
+
+# Builds ZScript.Native on every tagged release (v*.*.*).
+# Also available via workflow_dispatch for manual test builds.
+#
+# Job graph:
+#   native-build (matrix: win/linux/mac)
+#     └─► nuget-pack  (assembles runtimes/ layout, runs dotnet pack)
+#           └─► nuget-smoke  (installs from local feed, runs minimal script)
+#           └─► nuget-publish  (uploads to NuGet.org — tagged releases only)
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version override (e.g. 0.5.0-preview)"
+        required: false
+        default: "0.0.0-dev"
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # 1. Build the native shared library on each platform.
+  # ──────────────────────────────────────────────────────────────────────────
+  native-build:
+    name: Native build (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            lib: zscript.dll
+            cmake_extra: ""
+          - os: ubuntu-latest
+            rid: linux-x64
+            lib: libzscript.so
+            cmake_extra: ""
+          - os: macos-latest
+            rid: osx-x64
+            lib: libzscript.dylib
+            cmake_extra: "-DCMAKE_OSX_ARCHITECTURES=x86_64"
+          - os: macos-latest
+            rid: osx-arm64
+            lib: libzscript.dylib
+            cmake_extra: "-DCMAKE_OSX_ARCHITECTURES=arm64"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache CMake deps
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ matrix.rid }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ matrix.rid }}-
+
+      - name: Configure
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DZSCRIPT_BUILD_UNITY_PLUGIN=ON
+          ${{ matrix.cmake_extra }}
+
+      - name: Build
+        run: cmake --build build --config Release --target zscript_unity --parallel
+
+      - name: Locate native lib
+        shell: bash
+        run: |
+          # Find the built shared library and copy to a known path.
+          find build -name "${{ matrix.lib }}" | head -1 | xargs -I{} cp {} native_out_${{ matrix.lib }}
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: native_out_${{ matrix.lib }}
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 2. Assemble the runtimes/ layout and pack the NuGet package.
+  # ──────────────────────────────────────────────────────────────────────────
+  nuget-pack:
+    name: dotnet pack
+    needs: native-build
+    runs-on: ubuntu-latest
+
+    outputs:
+      version:  ${{ steps.version.outputs.version }}
+      nupkg:    ${{ steps.pack.outputs.nupkg }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Packaging version: ${VERSION}"
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: native_artifacts
+
+      - name: Assemble runtimes/ layout
+        shell: bash
+        run: |
+          cd nuget
+          mkdir -p runtimes/win-x64/native
+          mkdir -p runtimes/linux-x64/native
+          mkdir -p runtimes/osx-x64/native
+          mkdir -p runtimes/osx-arm64/native
+
+          cp ../native_artifacts/native-win-x64/native_out_zscript.dll          runtimes/win-x64/native/zscript.dll
+          cp ../native_artifacts/native-linux-x64/native_out_libzscript.so      runtimes/linux-x64/native/libzscript.so
+          cp ../native_artifacts/native-osx-x64/native_out_libzscript.dylib     runtimes/osx-x64/native/libzscript.dylib
+          cp ../native_artifacts/native-osx-arm64/native_out_libzscript.dylib   runtimes/osx-arm64/native/libzscript.dylib
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: dotnet pack
+        id: pack
+        shell: bash
+        run: |
+          cd nuget
+          dotnet pack ZScript.Native.csproj \
+            -c Release \
+            -p:ZScriptVersion=${{ steps.version.outputs.version }} \
+            -o ../artifacts/nuget
+          NUPKG=$(ls ../artifacts/nuget/*.nupkg | head -1)
+          echo "nupkg=${NUPKG}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload .nupkg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/nuget/*.nupkg
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 3. Smoke test — install from local feed, run a minimal script.
+  # ──────────────────────────────────────────────────────────────────────────
+  nuget-smoke:
+    name: Smoke test (${{ matrix.os }})
+    needs: nuget-pack
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download .nupkg
+        uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/nuget
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: Create smoke test project
+        shell: bash
+        run: |
+          mkdir smoke
+          cd smoke
+          dotnet new console -n ZScriptSmoke --force
+          cd ZScriptSmoke
+          dotnet add package ZScript.Native \
+            --version ${{ needs.nuget-pack.outputs.version }} \
+            --source ../../artifacts/nuget
+
+      - name: Write smoke test script
+        shell: bash
+        run: |
+          cat > smoke/ZScriptSmoke/smoke.zs << 'EOF'
+          fn hello(name) {
+              return "Hello, " + name + "!"
+          }
+          EOF
+
+          cat > smoke/ZScriptSmoke/Program.cs << 'EOF'
+          using ZScript;
+          using var engine = new ZScriptEngine();
+          engine.OpenStdlib();
+          engine.LoadFile("smoke.zs");
+          using var result = engine.Call("hello", "World");
+          var msg = result?.AsString() ?? "(nil)";
+          Console.WriteLine(msg);
+          if (msg != "Hello, World!") { Console.Error.WriteLine("FAIL"); Environment.Exit(1); }
+          Console.WriteLine("PASS");
+          EOF
+
+      - name: Run smoke test
+        shell: bash
+        run: |
+          cd smoke/ZScriptSmoke
+          cp ../../smoke/ZScriptSmoke/smoke.zs .
+          dotnet run
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 4. Publish to NuGet.org (tagged releases only).
+  # ──────────────────────────────────────────────────────────────────────────
+  nuget-publish:
+    name: Publish to NuGet.org
+    needs: [nuget-pack, nuget-smoke]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download .nupkg
+        uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/nuget
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: Push to NuGet.org
+        run: |
+          dotnet nuget push artifacts/nuget/*.nupkg \
+            --api-key ${{ secrets.NUGET_API_KEY }} \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate

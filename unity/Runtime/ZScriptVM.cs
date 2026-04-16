@@ -191,6 +191,60 @@ namespace ZScript
         public T UnwrapObject<T>(ZsValueHandle val) where T : class
             => UnwrapObject(val) as T;
 
+        // ----------------------------------------------------------------
+        // Annotation queries
+        // ----------------------------------------------------------------
+        /// <summary>
+        /// Returns all class names in loaded scripts that carry the
+        /// <c>@unity.component</c> annotation.
+        /// Useful for building component pickers in the Editor.
+        /// </summary>
+        public string[] GetComponentClasses()
+            => FindAnnotatedClasses("unity", "component");
+
+        /// <summary>
+        /// Returns all class names that carry the given @ns.name annotation.
+        /// </summary>
+        public string[] FindAnnotatedClasses(string ns, string annotationName)
+        {
+            if (_vm == IntPtr.Zero) return [];
+            byte[] buf = new byte[4096];
+            int count = ZsNative.zs_vm_find_annotated_classes(_vm, ns, annotationName, buf, buf.Length);
+            if (count == 0) return [];
+            return ParseNulSeparated(buf, count);
+        }
+
+        /// <summary>
+        /// Returns the annotation strings on a specific class
+        /// (e.g. <c>["unity.component", "unity.serialize"]</c>).
+        /// </summary>
+        public string[] GetClassAnnotations(string className)
+        {
+            if (_vm == IntPtr.Zero) return [];
+            byte[] buf = new byte[1024];
+            int count = ZsNative.zs_vm_get_class_annotations(_vm, className, buf, buf.Length);
+            if (count == 0) return [];
+            return ParseNulSeparated(buf, count);
+        }
+
+        private static string[] ParseNulSeparated(byte[] buf, int maxCount)
+        {
+            var results = new List<string>(maxCount);
+            int start = 0;
+            for (int i = 0; i <= buf.Length && results.Count < maxCount; ++i)
+            {
+                if (i == buf.Length || buf[i] == 0)
+                {
+                    if (i > start)
+                        results.Add(Encoding.UTF8.GetString(buf, start, i - start));
+                    start = i + 1;
+                    if (i < buf.Length && buf[i] == 0 && (i + 1 >= buf.Length || buf[i + 1] == 0))
+                        break; // double-NUL terminator
+                }
+            }
+            return [.. results];
+        }
+
         /// <summary>Raw VM handle — for advanced binding code only.</summary>
         public IntPtr RawVM => _vm;
 
@@ -281,6 +335,12 @@ fn WaitWhile(pred) {
 
             // Register yield helpers + StartCoroutine / StopCoroutine globals.
             RegisterYieldHelpers();
+
+            // Register Unity API bindings (Debug, Mathf, Time, Input, etc.).
+            ZsUnityBindings.Register(this);
+
+            // Register UGUI component bindings (Button, Slider, Toggle, etc.).
+            ZsUGUIBindings.Register(this);
 
             // Activate inspector-configured tags.
             foreach (string tag in tags)

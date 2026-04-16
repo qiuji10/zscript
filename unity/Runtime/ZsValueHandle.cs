@@ -4,6 +4,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
+using UnityEngine.Scripting;
 
 namespace ZScript
 {
@@ -11,6 +12,7 @@ namespace ZScript
     /// Owns a single ZsValue (heap-allocated on the C++ side).
     /// Dispose / using-statement is preferred; the finalizer is a safety net.
     /// </summary>
+    [Preserve]
     public sealed class ZsValueHandle : SafeHandle
     {
         // SafeHandle.InvalidHandleValue = IntPtr.Zero

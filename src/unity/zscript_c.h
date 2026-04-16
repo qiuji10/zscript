@@ -102,6 +102,8 @@ void  zs_vm_register_fn(ZsVM vm, const char* name, ZsNativeFn fn);
 // Returns a new ZsValue for the named global (caller must free).
 // Returns a nil ZsValue if the global does not exist.
 ZsValue zs_vm_get_global(ZsVM vm, const char* name);
+// Set a named global to val (copies the inner value; caller retains ownership of val).
+void    zs_vm_set_global(ZsVM vm, const char* name, ZsValue val);
 
 // ---------------------------------------------------------------------------
 // Object handle system
@@ -222,6 +224,22 @@ int zs_coroutine_resume(ZsVM vm, ZsValue co_val,
 // Return the current status of a coroutine.
 //   0 = suspended, 1 = running, 2 = dead, -1 = not a coroutine
 int zs_coroutine_status(ZsVM vm, ZsValue co_val);
+
+// ---------------------------------------------------------------------------
+// Annotation query API
+// ---------------------------------------------------------------------------
+// Returns the number of annotations on class_name, or 0 if the class has none.
+// If buf / buf_len are non-null/non-zero, writes a NUL-separated list of
+// "ns.name" strings (e.g. "unity.component\0unity.serialize\0") into buf.
+int zs_vm_get_class_annotations(ZsVM vm, const char* class_name,
+                                char* buf, int buf_len);
+
+// Find all class names that carry the annotation ns.name
+// (e.g. ns="unity", name="component").
+// Writes a NUL-separated list of class names into buf.
+// Returns the number of matching classes found.
+int zs_vm_find_annotated_classes(ZsVM vm, const char* ns, const char* name,
+                                 char* buf, int buf_len);
 
 #ifdef __cplusplus
 } // extern "C"

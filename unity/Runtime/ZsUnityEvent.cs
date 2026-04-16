@@ -325,6 +325,116 @@ namespace ZScript
     }
 
     // =========================================================================
+    // ZsActionEvent<T0, T1> — wraps a plain C# `event Action<T0,T1>` (not
+    // UnityEvent).  Used for SceneManager.sceneLoaded, sceneUnloaded, etc.
+    //
+    // Because C# events do not expose a subscriber list, we subscribe once
+    // with a single wrapper handler; that handler iterates _listeners.
+    // =========================================================================
+    public sealed class ZsActionEvent<T0, T1> : IDisposable
+    {
+        private readonly IntPtr           _vm;
+        private readonly Func<T0, IntPtr> _marshal0;
+        private readonly Func<T1, IntPtr> _marshal1;
+
+        private readonly Dictionary<long, ZsValueHandle> _listeners
+            = new Dictionary<long, ZsValueHandle>();
+        private long _nextId = 1;
+
+        // Stored so we can -= unsubscribe on Dispose.
+        private readonly Action<T0, T1> _handler;
+
+        // The subscribe/unsubscribe actions — provided by the caller so this
+        // class can remain generic without knowing the event name.
+        private readonly Action<Action<T0, T1>> _subscribe;
+        private readonly Action<Action<T0, T1>> _unsubscribe;
+
+        // GC pins for the proxy table delegates.
+        private ZsNativeFn _addFn, _removeFn, _removeAllFn;
+
+        public ZsActionEvent(IntPtr vm,
+                             Action<Action<T0, T1>> subscribe,
+                             Action<Action<T0, T1>> unsubscribe,
+                             Func<T0, IntPtr> marshal0,
+                             Func<T1, IntPtr> marshal1)
+        {
+            _vm          = vm;
+            _marshal0    = marshal0;
+            _marshal1    = marshal1;
+            _subscribe   = subscribe;
+            _unsubscribe = unsubscribe;
+            _handler     = OnFired;
+            subscribe(_handler);
+        }
+
+        public ZsValueHandle CreateProxy()
+        {
+            IntPtr tbl = ZsNative.zs_table_new();
+
+            _addFn = (vm, argc, argv) =>
+            {
+                if (argc < 1) return ZsNative.zs_value_nil();
+                var handle = new ZsValueHandle(ZsNative.zs_value_clone(argv[0]));
+                long id = _nextId++;
+                _listeners[id] = handle;
+                return ZsNative.zs_value_int(id);
+            };
+            _removeFn = (vm, argc, argv) =>
+            {
+                if (argc >= 1) RemoveListener(ZsNative.zs_value_as_int(argv[0]));
+                return ZsNative.zs_value_nil();
+            };
+            _removeAllFn = (vm, argc, argv) =>
+            {
+                RemoveAllListeners();
+                return ZsNative.zs_value_nil();
+            };
+
+            ZsNative.zs_table_set_fn(tbl, "AddListener",        _addFn,       _vm);
+            ZsNative.zs_table_set_fn(tbl, "RemoveListener",     _removeFn,    _vm);
+            ZsNative.zs_table_set_fn(tbl, "RemoveAllListeners", _removeAllFn, _vm);
+            return new ZsValueHandle(tbl);
+        }
+
+        private void OnFired(T0 v0, T1 v1)
+        {
+            IntPtr a0 = _marshal0(v0);
+            IntPtr a1 = _marshal1(v1);
+            IntPtr[] argv = { a0, a1 };
+            byte[] err = new byte[256];
+            foreach (var fn in _listeners.Values)
+            {
+                IntPtr outRaw;
+                ZsNative.zs_value_invoke(_vm, fn.Raw, 2, argv, out outRaw, err, err.Length);
+                if (outRaw != IntPtr.Zero) ZsNative.zs_value_free(outRaw);
+            }
+            ZsNative.zs_value_free(a0);
+            ZsNative.zs_value_free(a1);
+        }
+
+        private void RemoveListener(long id)
+        {
+            if (_listeners.TryGetValue(id, out var h))
+            {
+                h.Dispose();
+                _listeners.Remove(id);
+            }
+        }
+
+        private void RemoveAllListeners()
+        {
+            foreach (var h in _listeners.Values) h.Dispose();
+            _listeners.Clear();
+        }
+
+        public void Dispose()
+        {
+            _unsubscribe(_handler);
+            RemoveAllListeners();
+        }
+    }
+
+    // =========================================================================
     // Common marshal helpers for built-in Unity argument types.
     // Pass these as the 'marshal' delegate when constructing ZsUnityEvent<T>.
     // =========================================================================

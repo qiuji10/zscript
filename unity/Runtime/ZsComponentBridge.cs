@@ -66,11 +66,17 @@ namespace ZScript
         }
 
         // Call a method on the ZScript instance with one object-handle argument.
+        // The argument is validity-checked before dispatch: if the Unity object
+        // has been destroyed, the ZScript method is called with nil instead of
+        // a dangling handle, so scripts can branch on nil gracefully.
         private void CallWithHandle(string method, object arg)
         {
             if (Instance == null || Instance.IsInvalid || RawVM == IntPtr.Zero) return;
             long id = ScriptVM.ObjectPool.Alloc(arg);
-            IntPtr argRaw = ZsNative.zs_vm_push_object_handle(RawVM, id);
+            // If the object was destroyed between Alloc and dispatch, pass nil.
+            IntPtr argRaw = ScriptVM.ObjectPool.IsValid(id)
+                ? ZsNative.zs_vm_push_object_handle(RawVM, id)
+                : ZsNative.zs_value_nil();
             IntPtr[] argv = { argRaw };
             byte[] err = new byte[256];
             IntPtr outRaw;

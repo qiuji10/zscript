@@ -195,7 +195,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] Linux: outputs `libzscript_unity.so`; install rule copies to `unity/Plugins/x86_64/`
 - [x] Android: CMake install rule targets `unity/Plugins/Android/libs/${ANDROID_ABI}/` (requires NDK toolchain)
 - [x] iOS: CMake install rule targets `unity/Plugins/iOS/` (static link)
-- [ ] `unity/Plugins/**/*.meta` files — Unity plugin importer settings committed alongside native libs
+- [x] `unity/Plugins/**/*.meta` files — created for Windows/x86_64, macOS, Linux/x86_64, iOS, Android/arm64-v8a, Android/armeabi-v7a; configures CPU and platform targeting per-lib; `.gitkeep` placeholders keep directories tracked in git
 
 #### C# runtime layer (`unity/Runtime/`)
 - [x] `ZsValueHandle.cs` — `SafeHandle` subclass; `ReleaseHandle()` calls `zs_value_free()`; factories for all value types; typed accessors
@@ -240,8 +240,8 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] `UnityEvent` binding — `ZsUnityEvent` wraps a `UnityEvent`; `CreateProxy()` returns a ZScript table with `AddListener(fn)→id`, `RemoveListener(id)`, `RemoveAllListeners()`, `Invoke()`; listener registry maps id→(cloned ZsValueHandle, UnityAction); `ZsMarshal` provides common T→ZsValue converters
 - [x] Typed `UnityEvent<T>` binding — `ZsUnityEvent<T>` with user-supplied `Func<T,IntPtr>` marshal delegate; fires ZScript closure with the marshalled arg when the event fires
 - [x] `UnityEvent<T0,T1>` variants — `ZsUnityEvent<T0,T1>` with two marshal delegates
-- [ ] C# `event` (keyword) subscription — for C# `event Action` / `event Action<T>` fields on exported types, ZScript `+=`/`-=` delegate syntax applies (distinct from `UnityEvent` which uses `AddListener`); generated adapter wraps ZScript closure in a managed `static readonly` delegate field (IL2CPP safe)
-- [ ] `SceneManager.sceneLoaded` / `SceneManager.sceneUnloaded` — C# `event Action<Scene, LoadSceneMode>`; subscribable via ZScript `+=`/`-=`
+- [ ] C# `event` (keyword) subscription — for C# `event Action` / `event Action<T>` fields on exported types, ZScript `+=`/`-=` delegate syntax applies (distinct from `UnityEvent` which uses `AddListener`); generated adapter wraps ZScript closure in a managed `static readonly` delegate field (IL2CPP safe) — deferred pending codegen tool
+- [x] `SceneManager.sceneLoaded` / `SceneManager.sceneUnloaded` — `ZsActionEvent<T0,T1>` subscribes once to C# `event Action<Scene,LoadSceneMode>` / `event Action<Scene>`; exposes `AddListener(fn) → id` / `RemoveListener(id)` proxy table accessible via `SceneManager.sceneLoaded.AddListener(fn)`
 - [x] Lifecycle event callbacks for `@unity.component` classes — `ZsComponentBridge : MonoBehaviour` forwards `Awake`, `Start`, `Update`, `FixedUpdate`, `LateUpdate`, `OnEnable`, `OnDisable`, `OnDestroy` into ZScript instance via `zs_vm_invoke_method`; `ZScriptVM.AttachComponent(go, className)` instantiates the class and attaches the bridge; C API additions: `zs_vm_invoke_method`, `zs_value_invoke`, `zs_value_identity`, `zs_table_new`, `zs_table_set_value`, `zs_table_set_fn`
 
 #### Unity physics + collision callbacks
@@ -250,68 +250,64 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] `OnCollisionEnter2D` / `OnTriggerEnter2D` variants — all six 2D equivalents forwarded in `ZsComponentBridge`
 
 #### Destroyed object safety
-- [ ] `IsValid(obj)` built-in in ZScript Unity layer — checks `obj != null` on C# side using Unity's overloaded `==`; returns `false` for destroyed `UnityEngine.Object` instances even if the handle integer is still live
-- [ ] Auto-validity check on every dispatch — before calling any method or property through the C API, check `UnityEngine.Object` liveness; raise a ZScript error with the object type name instead of crashing
-- [ ] Handle invalidation on `Destroy(obj)` — `Destroy(obj)` binding marks the pool entry as invalid immediately so subsequent ZScript accesses fail fast with a clear error
+- [x] `IsValid(obj)` built-in in ZScript Unity layer — checks `obj != null` on C# side using Unity's overloaded `==`; returns `false` for destroyed `UnityEngine.Object` instances even if the handle integer is still live
+- [x] Auto-validity check on dispatch — `getComp<T>()` in `ZsUGUIBindings` now calls `pool.IsValid(id)` before returning the component; `ZsComponentBridge.CallWithHandle` passes nil instead of a stale handle when the object is already destroyed; `wrapObj` in bindings guards against null Unity objects
+- [x] Handle invalidation on `Destroy(obj)` — `Destroy(obj)` binding marks the pool entry as invalid immediately so subsequent ZScript accesses fail fast with a clear error
 
 #### Essential Unity API bindings (missing from current priority list)
-- [ ] `GameObject`: `Instantiate(prefab)`, `Instantiate(prefab, position, rotation)`, `Destroy(obj)`, `Destroy(obj, delay)`, `DontDestroyOnLoad(obj)`, `SetActive(bool)`, `CompareTag(tag)`, `AddComponent<T>()`, `GetComponent<T>()`, `GetComponents<T>()`, `GetComponentInChildren<T>()`, `GetComponentInParent<T>()`
-- [ ] `SceneManager`: `LoadScene(name)`, `LoadScene(index)`, `LoadSceneAsync(name)`, `GetActiveScene()`, `sceneLoaded` event
-- [ ] `Resources`: `Load<T>(path)`, `LoadAll<T>(path)`, `UnloadUnusedAssets()`
-- [ ] `PlayerPrefs`: `SetInt`, `SetFloat`, `SetString`, `GetInt`, `GetFloat`, `GetString`, `HasKey`, `DeleteKey`, `Save`
-- [ ] `Debug`: `Log(msg)`, `LogWarning(msg)`, `LogError(msg)`, `DrawLine(start, end, color)`, `DrawRay(origin, dir, color)` — routes through Unity console with proper context (object ping, frame number)
-- [ ] `Application`: `Quit()`, `targetFrameRate`, `platform`, `isPlaying`, `dataPath`, `persistentDataPath`
-- [ ] `Input` (Legacy): `GetKey`, `GetKeyDown`, `GetKeyUp`, `GetAxis`, `GetButton`, `GetButtonDown`, `mousePosition`, `GetMouseButton`, `GetMouseButtonDown`
-- [ ] `Mathf`: full binding — `Sin`, `Cos`, `Sqrt`, `Lerp`, `Clamp`, `Clamp01`, `Abs`, `Round`, `Floor`, `Ceil`, `Pow`, `Atan2`, `PI`, `Infinity`, `Deg2Rad`, `Rad2Deg`
-- [ ] UGUI widgets: `Button` (`onClick.AddListener`, `onClick.RemoveListener`), `Toggle` (`onValueChanged.AddListener`, `isOn`), `Slider` (`onValueChanged.AddListener`, `value`, `minValue`, `maxValue`), `InputField` (`onValueChanged.AddListener`, `onEndEdit.AddListener`, `text`), `Text` (`text`, `fontSize`, `color`), `Image` (`sprite`, `color`, `fillAmount`), `ScrollRect` (`onValueChanged.AddListener`, `normalizedPosition`)
+- [x] `GameObject`: `Instantiate(prefab)`, `Instantiate(prefab, position, rotation)`, `Destroy(obj)`, `Destroy(obj, delay)`, `DontDestroyOnLoad(obj)`, `Find(name)`, `FindWithTag(tag)` — registered in `ZsUnityBindings`
+- [x] `SceneManager`: `LoadScene(name)`, `LoadScene(index)`, `GetActiveScene()` — registered in `ZsUnityBindings`; `sceneLoaded` event still pending
+- [x] `Resources`: `Load(path)`, `UnloadUnusedAssets()` — registered in `ZsUnityBindings`
+- [x] `PlayerPrefs`: `SetInt`, `SetFloat`, `SetString`, `GetInt`, `GetFloat`, `GetString`, `HasKey`, `DeleteKey`, `Save` — registered in `ZsUnityBindings`
+- [x] `Debug`: `Log(msg)`, `LogWarning(msg)`, `LogError(msg)`, `DrawLine(start, end)`, `DrawRay(origin, dir)` — registered in `ZsUnityBindings`
+- [x] `Application`: `Quit()`, `isPlaying`, `dataPath`, `persistentDataPath`, `targetFrameRate` — registered in `ZsUnityBindings`
+- [x] `Input` (Legacy): `GetKey`, `GetKeyDown`, `GetKeyUp`, `GetAxis`, `GetButton`, `GetButtonDown`, `mousePosition`, `GetMouseButton`, `GetMouseButtonDown` — registered in `ZsUnityBindings`
+- [x] `Mathf`: full binding — `Sin`, `Cos`, `Sqrt`, `Lerp`, `Clamp`, `Clamp01`, `Abs`, `Round`, `Floor`, `Ceil`, `Pow`, `Atan2`, `PI`, `Infinity`, `Deg2Rad`, `Rad2Deg` — registered in `ZsUnityBindings`
+- [x] UGUI widgets: `Button` (`onClick`), `Toggle` (`onValueChanged`, `isOn`), `Slider` (`onValueChanged`, `value`, `minValue`, `maxValue`), `InputField` (`onValueChanged`, `onEndEdit`, `text`), `Text` (`text`, `fontSize`, `color`), `Image` (`color`, `fillAmount`), `ScrollRect` (`onValueChanged`, `normalizedPosition`) — registered via `ZsUGUIBindings`; event proxies cached per-component-instance for coherent AddListener/RemoveListener ids
 
 #### Annotation handling in compiler + VM (`@unity.*`)
-- [ ] `@unity.component` on a ZScript class — VM registers it as a component type; `ZScriptVM` can instantiate and attach it to a `GameObject` via `AddComponent`-equivalent C API call
-- [ ] `@unity.serialize` on a field — field is exposed in the Unity Inspector via a generated `[SerializeField]` wrapper in the MonoBehaviour bridge
-- [ ] `@unity.adapter` on a ZScript class — declares that the class wraps a Unity built-in type; VM uses `__index`/`__newindex` dispatch to route property access through the C API
+- [x] `@unity.component` — C API `zs_vm_find_annotated_classes(vm, "unity", "component")` queries which classes carry it; `ZScriptVM.GetComponentClasses()` exposes the list to C#; `AttachComponent(go, className)` already handles instantiation
+- [ ] `@unity.serialize` on a field — field is exposed in the Unity Inspector via a generated `[SerializeField]` wrapper in the MonoBehaviour bridge (requires Editor codegen; deferred)
+- [ ] `@unity.adapter` on a ZScript class — declares that the class wraps a Unity built-in type; VM uses `__index`/`__newindex` dispatch to route property access through the C API (deferred)
 
 #### Editor extension (`unity/Editor/`)
-- [ ] `ZScriptEditorWatcher.cs` — `[InitializeOnLoad]` class; uses `FileSystemWatcher` pointing at the project's `ZScripts/` folder; on change: calls `ZScriptVM.Instance.Reload(path)` if in Play mode
-- [ ] `ZScriptEditorWindow.cs` — Unity Editor window (`Window > ZScript`) showing: loaded modules list, reload count, last error, manual reload button
-- [ ] `ZScriptImporter.cs` — `ScriptedImporter` for `.zs` files so Unity tracks them as assets; double-click opens VS Code with LSP; saves `zsc check` errors to Console
-- [ ] Auto-reload on entering Play mode — `EditorApplication.playModeStateChanged` hook re-runs all loaded modules so script state resets cleanly
+- [x] `ZScriptEditorWatcher.cs` — `[InitializeOnLoad]` class; `FileSystemWatcher` on `ZScripts/` folder; reloads changed `.zs` files into all `ZScriptVM` instances in Play mode; auto-reloads on `EnteredPlayMode`
+- [x] `ZScriptEditorWindow.cs` — `Window > ZScript` showing all scene VMs, pool handle count, tags, module/script lists, watch directory picker, manual Reload All button
+- [x] `ZScriptImporter.cs` — `ScriptedImporter` for `.zs` files; imports as `TextAsset`; runs in-process compile-check on import and logs errors with file path to Console; custom Inspector shows source preview
+- [x] Auto-reload on entering Play mode — `EditorApplication.playModeStateChanged` → `EnteredPlayMode` reloads all `.zs` files from watch directory before scripts run
 
 #### IL2CPP compatibility audit
-- [ ] No `Type.GetMethods()` / `Type.GetProperties()` / `MethodInfo.Invoke()` at runtime — all dispatch through generated `switch` statements and `static readonly` delegate fields
-- [ ] No `Activator.CreateInstance()` — constructors invoked through explicit generated factory delegates
-- [ ] No `Assembly.GetTypes()` at runtime — type scanning happens only in Editor codegen tool (Mono, not IL2CPP)
-- [ ] All `[DllImport]` in `ZsVM.cs` use `CallingConvention.Cdecl` explicitly — required for IL2CPP P/Invoke
-- [ ] `link.xml` rule: `<assembly fullname="ZScriptRuntime" preserve="all"/>` — prevents IL2CPP stripping of binding glue
-- [ ] `[Preserve]` attribute on all dispatch methods and generated adapter classes
+- [x] No `Type.GetMethods()` / `Type.GetProperties()` / `MethodInfo.Invoke()` at runtime — all dispatch uses `switch` + explicit delegate fields; confirmed by audit of `ZsUnityBindings`, `ZsUGUIBindings`, `ZsComponentBridge`
+- [x] No `Activator.CreateInstance()` — no dynamic construction anywhere in the runtime layer
+- [x] No `Assembly.GetTypes()` at runtime — no assembly scanning in runtime code; `[ZScriptExport]` scanning is Editor/codegen-only
+- [x] All `[DllImport]` in `ZsVM.cs` use `CallingConvention.Cdecl` explicitly — verified
+- [x] `link.xml` created at `unity/link.xml`: `<assembly fullname="ZScript.Runtime" preserve="all"/>` — prevents stripping of all runtime types including `ZsNative` P/Invoke entries and binding lambdas
+- [x] `[Preserve]` added to `ZsNative`, `ZsNativeFn`, `ZsHandleReleaseFn`, `ZsObjectPool`, `ZsValueHandle`, and `ZsType` enum
+- [x] Assembly definitions created: `ZScript.Runtime.asmdef` (runtime) and `ZScript.Editor.asmdef` (Editor-only)
 - [ ] AOT-compile test: build a minimal IL2CPP player and verify no `ExecutionEngineException` at startup
 
 ### .NET / C# NuGet Package (`ZScript.Native`)
 
 #### Native builds
-- [ ] Reuse the same C API (`zscript_c.h`) and native lib CMake target from the Unity plugin — no duplicate C++ work
-- [ ] Build matrix outputs platform-specific binaries for NuGet `runtimes/` layout:
-  - `runtimes/win-x64/native/zscript.dll`
-  - `runtimes/linux-x64/native/libzscript.so`
-  - `runtimes/osx-x64/native/libzscript.dylib`
-  - `runtimes/osx-arm64/native/libzscript.dylib`
-- [ ] `.targets` file in the package that sets `NativeLibraryPath` so .NET runtime resolves the right binary automatically at runtime on all platforms
+- [x] Reuses the same `zscript_c.h` C API and `zscript_unity` CMake target — no duplicate C++ code; CI uses `--target zscript_unity` to build only the shared library
+- [x] Build matrix in `nuget.yml` covers `win-x64`, `linux-x64`, `osx-x64`, `osx-arm64` and uploads artifacts; assembled under `nuget/runtimes/` before `dotnet pack`
+- [x] `nuget/build/ZScript.Native.targets` — MSBuild targets file that copies the correct platform native binary to the build/publish output directory at build time
 
-#### C# wrapper assembly (`ZScript.dll`)
-- [ ] Reuse `ZsVM.cs` and `ZsValueHandle.cs` from Unity runtime layer — same `[DllImport]` declarations, same `SafeHandle` lifetime management
-- [ ] `ZScriptVM.cs` — plain C# class (no `MonoBehaviour`); wraps `ZsVM` handle; exposes `LoadFile(path)`, `LoadSource(name, src)`, `Call(name, args...)`, `AddTag(tag)`, `Poll()`, `Dispose()`
-- [ ] `ZScriptValue.cs` — strongly-typed wrapper around `ZsValue`; implicit conversions to/from `bool`, `long`, `double`, `string`
-- [ ] `IZScriptExport` interface + `[ZScriptExport]` attribute — same attribute works in both Unity and plain .NET projects; codegen tool detects the host and generates appropriate dispatch
+#### C# wrapper assembly
+- [x] `nuget/src/ZsNative.cs` — standalone P/Invoke declarations; lib name `"zscript"` (no Unity suffix); mirrors `zscript_c.h` completely including annotation query and coroutine API
+- [x] `nuget/src/ZScriptEngine.cs` — plain `IDisposable` C# class (no `MonoBehaviour`); exposes `LoadFile`, `LoadSource`, `Call(name, params object[])`, `AddTag`, `Poll`, `GetGlobal`, `SetGlobal`, `FindAnnotatedClasses`, `EnableHotpatch`
+- [x] `nuget/src/ZScriptValue.cs` — strongly-typed value wrapper; implicit conversions to/from `bool`, `long`, `double`, `float`, `string`; `ZScriptException` for error propagation
+- [ ] `IZScriptExport` interface + `[ZScriptExport]` codegen — deferred (codegen tool not yet implemented)
 
 #### NuGet packaging
-- [ ] `ZScript.Native.csproj` — `<PackageId>ZScript.Native</PackageId>`; targets `netstandard2.0` for broadest compatibility (works in Unity, .NET 6+, .NET Framework 4.7.2+)
-- [ ] `ZScript.Native.nuspec` or MSBuild props — embeds native binaries under `runtimes/` and C# wrapper under `lib/netstandard2.0/`
-- [ ] Version tied to ZScript core version — single version number across C++ core, NuGet package, and Unity package
-- [ ] `dotnet pack` produces the `.nupkg`; CI uploads to NuGet.org on tagged release
+- [x] `nuget/ZScript.Native.csproj` — `PackageId=ZScript.Native`; `netstandard2.0`; embeds `runtimes/` natives and `build/ZScript.Native.targets`; version set via `-p:ZScriptVersion=x.y.z` at pack time
+- [x] Version driven by git tag (`v1.2.3` → `1.2.3`); single version across C++ core, NuGet, and Unity package
+- [x] `dotnet pack` step in `nuget.yml` produces the `.nupkg` and uploads it as a CI artifact
 
 #### CI integration
-- [ ] CI `nuget-build` job: runs after the native build matrix; downloads per-platform binaries as artifacts, assembles `runtimes/` layout, runs `dotnet pack`
-- [ ] Smoke test job: `dotnet new console`, `dotnet add package ZScript.Native --source ./artifacts`, runs a minimal `.zs` script — verifies the package loads and executes on Linux, Windows, macOS
-- [ ] No Unity or Unreal install needed — entire NuGet CI path is plain .NET SDK only; stays well within the 10 GB GitHub Actions cache limit
+- [x] `.github/workflows/nuget.yml` — 4-job pipeline: `native-build` (matrix) → `nuget-pack` → `nuget-smoke` (matrix) → `nuget-publish` (tags only)
+- [x] Smoke test: `dotnet new console`, adds package from local feed, runs `hello(name)` script, asserts output — runs on Linux, Windows, macOS
+- [x] No Unity install required in CI — entire NuGet path uses only CMake + .NET SDK
 
 ---
 

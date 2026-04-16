@@ -5,6 +5,7 @@
 // called and the strong reference is dropped.
 using System;
 using System.Collections.Generic;
+using UnityEngine.Scripting;
 
 namespace ZScript
 {
@@ -12,6 +13,7 @@ namespace ZScript
     /// Thread-safe integer-keyed object pool used to pass C# object references
     /// across the P/Invoke boundary as opaque integer handles.
     /// </summary>
+    [Preserve]
     public sealed class ZsObjectPool
     {
         private readonly object _lock = new object();
@@ -62,8 +64,43 @@ namespace ZScript
                 if (_idToObj.TryGetValue(id, out object obj))
                 {
                     _idToObj.Remove(id);
-                    _objToId.Remove(obj);
+                    if (obj != null) _objToId.Remove(obj); // null = already invalidated
                 }
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // Invalidate — mark a handle as destroyed without fully releasing it.
+        // Subsequent Get() calls return null; IsValid() returns false.
+        // The id remains in _idToObj so the GC-hook Release() still cleans up.
+        // ----------------------------------------------------------------
+        public void Invalidate(long id)
+        {
+            lock (_lock)
+            {
+                if (_idToObj.TryGetValue(id, out object obj) && obj != null)
+                {
+                    _objToId.Remove(obj);   // detach reverse mapping
+                    _idToObj[id] = null;    // keep slot alive, mark destroyed
+                }
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // IsValid — true if the handle exists AND the object has not been
+        // destroyed. For UnityEngine.Object subtypes, uses Unity's overloaded
+        // == null which returns true for destroyed native objects.
+        // ----------------------------------------------------------------
+        public bool IsValid(long id)
+        {
+            lock (_lock)
+            {
+                if (!_idToObj.TryGetValue(id, out object obj)) return false;
+                if (obj == null) return false;
+                // Unity overloads == null to detect native-side destruction.
+                if (obj is UnityEngine.Object uObj)
+                    return uObj != null;
+                return true;
             }
         }
 

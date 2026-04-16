@@ -24,3 +24,15 @@
 # Visual Studio Code Extensions
 node_modules/
 out/
+
+# NuGet package build artifacts (assembled by CI before dotnet pack)
+/nuget/runtimes/
+/nuget/artifacts/
+*.nupkg
+*.snupkg
+
+# Unity native plugin binaries (built by CI; only .meta files are committed)
+unity/Plugins/**/*.dll
+unity/Plugins/**/*.so
+unity/Plugins/**/*.dylib
+unity/Plugins/**/*.a

@@ -1,0 +1,19 @@
+<!--
+  link.xml — IL2CPP linker preservation rules for the ZScript Unity runtime.
+
+  Preserves the entire ZScript.Runtime assembly so IL2CPP's managed code
+  stripper does not remove:
+    • ZsNative  — P/Invoke entry points and internal bridge types
+    • ZsObjectPool, ZsValueHandle, ZsCoroutineBridge — referenced only by
+      generated/dynamic binding code that the static analysis cannot trace
+    • ZsUnityBindings, ZsUGUIBindings — registered via Awake() but each
+      individual ZsNativeFn lambda looks "unreachable" to the stripper
+    • Delegate types ZsNativeFn / ZsHandleReleaseFn — marshalled through
+      unmanaged pointers; no static C# call site the stripper can follow
+
+  If the package is used from source (no .asmdef), change the fullname below
+  to "Assembly-CSharp".
+-->
+<linker>
+    <assembly fullname="ZScript.Runtime" preserve="all"/>
+</linker>
