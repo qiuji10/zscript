@@ -1,5 +1,7 @@
 {
   "dependencies": {
+    "com.unity.test-framework": "1.4.5",
+    "com.zscript.runtime": "file:../../com.zscript.runtime",
     "com.unity.multiplayer.center": "1.0.1",
     "com.unity.modules.accessibility": "1.0.0",
     "com.unity.modules.adaptiveperformance": "1.0.0",
@@ -35,5 +37,8 @@
     "com.unity.modules.vr": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
     "com.unity.modules.xr": "1.0.0"
-  }
+  },
+  "testables": [
+    "com.zscript.runtime"
+  ]
 }

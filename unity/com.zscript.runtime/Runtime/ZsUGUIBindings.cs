@@ -1,3 +1,4 @@
+#if ZSCRIPT_UGUI
 // ZsUGUIBindings.cs — ZScript bindings for Unity UGUI components.
 // Registers a global "UGUI" table with factory functions that wrap UI components.
 //
@@ -401,3 +402,5 @@ namespace ZScript
         }
     }
 }
+
+#endif // ZSCRIPT_UGUI

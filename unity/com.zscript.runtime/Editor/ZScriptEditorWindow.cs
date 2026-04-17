@@ -79,7 +79,7 @@ namespace ZScript.Editor
 
         private void DrawVMList()
         {
-            var vms = FindObjectsOfType<ZScriptVM>();
+            var vms = FindObjectsByType<ZScriptVM>(FindObjectsSortMode.None);
 
             if (vms.Length == 0)
             {
@@ -163,7 +163,7 @@ namespace ZScript.Editor
                 return;
             }
 
-            var vms = FindObjectsOfType<ZScriptVM>();
+            var vms = FindObjectsByType<ZScriptVM>(FindObjectsSortMode.None);
             int reloaded = 0;
             foreach (string path in Directory.GetFiles(dir, "*.zs", SearchOption.AllDirectories))
             {

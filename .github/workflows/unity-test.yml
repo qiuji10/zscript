@@ -70,6 +70,12 @@ jobs:
         shell: cmd
         run: cmake --install %BUILD_DIR% --config Release
 
+      - name: Clean Unity temp files
+        shell: cmd
+        run: |
+          if exist unity\UnityProject\Temp rmdir /s /q unity\UnityProject\Temp
+          if exist unity\UnityProject\Logs rmdir /s /q unity\UnityProject\Logs
+
       - name: Run EditMode tests
         shell: pwsh
         timeout-minutes: 15
@@ -133,6 +139,12 @@ jobs:
 
       - name: Install dylib/bundle into Plugins/
         run: cmake --install "$BUILD_DIR" --config Release
+
+      - name: Remove macOS quarantine from plugin
+        run: xattr -rd com.apple.quarantine unity/com.zscript.runtime/Plugins/macOS/ || true
+
+      - name: Clean Unity temp files
+        run: rm -rf unity/UnityProject/Temp unity/UnityProject/Logs
 
       - name: Run EditMode tests
         timeout-minutes: 15

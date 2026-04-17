@@ -339,8 +339,10 @@ fn WaitWhile(pred) {
             // Register Unity API bindings (Debug, Mathf, Time, Input, etc.).
             ZsUnityBindings.Register(this);
 
+#if ZSCRIPT_UGUI
             // Register UGUI component bindings (Button, Slider, Toggle, etc.).
             ZsUGUIBindings.Register(this);
+#endif
 
             // Activate inspector-configured tags.
             foreach (string tag in tags)

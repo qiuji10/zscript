@@ -92,7 +92,7 @@ namespace ZScript.Editor
             if (!EditorApplication.isPlaying) return;
             if (!File.Exists(fullPath)) return;
 
-            var vms = Object.FindObjectsOfType<ZScriptVM>();
+            var vms = Object.FindObjectsByType<ZScriptVM>(FindObjectsSortMode.None);
             if (vms.Length == 0) return;
 
             string source;
@@ -113,7 +113,7 @@ namespace ZScript.Editor
             string dir = ResolveWatchDir();
             if (!Directory.Exists(dir)) return;
 
-            var vms = Object.FindObjectsOfType<ZScriptVM>();
+            var vms = Object.FindObjectsByType<ZScriptVM>(FindObjectsSortMode.None);
             if (vms.Length == 0) return;
 
             foreach (string path in Directory.GetFiles(dir, "*.zs", SearchOption.AllDirectories))

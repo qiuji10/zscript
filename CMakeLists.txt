@@ -75,7 +75,7 @@ if(ZSCRIPT_UNITY)
     # ---------------------------------------------------------------------------
     # Platform-specific output name / suffix and Unity Plugins/ install path
     # ---------------------------------------------------------------------------
-    set(UNITY_PLUGINS_DIR "${CMAKE_SOURCE_DIR}/unity/Plugins" CACHE PATH
+    set(UNITY_PLUGINS_DIR "${CMAKE_SOURCE_DIR}/unity/com.zscript.runtime/Plugins" CACHE PATH
         "Root of the Unity project's Plugins/ folder")
 
     if(WIN32)

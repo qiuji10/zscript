@@ -2,7 +2,10 @@
 // All [DllImport] entries mirror zscript_c.h exactly.
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using UnityEngine.Scripting;
+
+[assembly: InternalsVisibleTo("ZScript.Editor")]
 
 namespace ZScript
 {

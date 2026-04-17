@@ -32,10 +32,10 @@ out/
 *.snupkg
 
 # Unity native plugin binaries (built by CI; only .meta files are committed)
-unity/Plugins/**/*.dll
-unity/Plugins/**/*.so
-unity/Plugins/**/*.dylib
-unity/Plugins/**/*.a
+unity/com.zscript.runtime/Plugins/**/*.dll
+unity/com.zscript.runtime/Plugins/**/*.so
+unity/com.zscript.runtime/Plugins/**/*.dylib
+unity/com.zscript.runtime/Plugins/**/*.a
 
 # Unity project generated folders (and any meta files inside them)
 unity/UnityProject/Library/
