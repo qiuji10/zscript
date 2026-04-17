@@ -73,11 +73,17 @@ namespace ZScript
         public string AsString()
         {
             if (IsInvalid) return string.Empty;
-            // First call to get the length, second to fill the buffer.
-            int len = ZsNative.zs_value_as_string(handle, null, 0);
-            byte[] buf = new byte[len + 1];
-            ZsNative.zs_value_as_string(handle, buf, buf.Length);
-            return Encoding.UTF8.GetString(buf, 0, len);
+            // zs_value_as_string returns 0 when buf==null, so use a direct buffer.
+            // 4096 covers typical strings; if truncated, retry with exact size.
+            byte[] buf = new byte[4096];
+            int len = ZsNative.zs_value_as_string(handle, buf, buf.Length);
+            if (len <= 0) return string.Empty;
+            if (len >= buf.Length)
+            {
+                buf = new byte[len + 1];
+                ZsNative.zs_value_as_string(handle, buf, buf.Length);
+            }
+            return Encoding.UTF8.GetString(buf, 0, Math.Min(len, buf.Length - 1));
         }
 
         public long AsObject()

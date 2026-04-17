@@ -114,7 +114,8 @@ namespace ZScript.Tests
         [Test]
         public void Call_RuntimeError_DoesNotThrow()
         {
-            _vm.LoadSource("<test>", "fn boom() { return 1 / 0 }");
+            // nil + 1 causes a ZScript runtime type error; 1/0 would return inf (no error).
+            _vm.LoadSource("<test>", "fn boom() { return nil + 1 }");
             LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(".*Call 'boom' error.*"));
             Assert.DoesNotThrow(() => { using var v = _vm.Call("boom"); },
                 "Runtime errors must be caught internally and not propagate as C# exceptions");
