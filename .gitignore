@@ -30,6 +30,8 @@ out/
 /nuget/artifacts/
 *.nupkg
 *.snupkg
+**/obj/
+**/bin/
 
 # Unity native plugin binaries (built by CI; only .meta files are committed)
 unity/com.zscript.runtime/Plugins/**/*.dll

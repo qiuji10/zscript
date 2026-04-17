@@ -1,0 +1,45 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "nuget", "nuget", "{2A18E756-48A1-E247-9A68-57B5E8CBE245}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{07C2787E-EAC7-C090-1BA3-A61EC2A24D84}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZScript.Native", "nuget\ZScript.Native.csproj", "{09C7D8F8-1BAE-6CDD-5C4D-022FD3C8191D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZScriptExportGen", "tools\ZScriptExportGen\ZScriptExportGen.csproj", "{C443C436-D59C-57F0-0C3C-BA68337875AB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnityBindingGen", "tools\UnityBindingGen\UnityBindingGen.csproj", "{8E75034A-970D-7AC8-94D2-EBE43811B5A0}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{09C7D8F8-1BAE-6CDD-5C4D-022FD3C8191D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{09C7D8F8-1BAE-6CDD-5C4D-022FD3C8191D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{09C7D8F8-1BAE-6CDD-5C4D-022FD3C8191D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{09C7D8F8-1BAE-6CDD-5C4D-022FD3C8191D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C443C436-D59C-57F0-0C3C-BA68337875AB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C443C436-D59C-57F0-0C3C-BA68337875AB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C443C436-D59C-57F0-0C3C-BA68337875AB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C443C436-D59C-57F0-0C3C-BA68337875AB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E75034A-970D-7AC8-94D2-EBE43811B5A0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E75034A-970D-7AC8-94D2-EBE43811B5A0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E75034A-970D-7AC8-94D2-EBE43811B5A0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E75034A-970D-7AC8-94D2-EBE43811B5A0}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{09C7D8F8-1BAE-6CDD-5C4D-022FD3C8191D} = {2A18E756-48A1-E247-9A68-57B5E8CBE245}
+		{C443C436-D59C-57F0-0C3C-BA68337875AB} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
+		{8E75034A-970D-7AC8-94D2-EBE43811B5A0} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5EB55174-EEC7-4841-B25A-0A03C8344502}
+	EndGlobalSection
+EndGlobal

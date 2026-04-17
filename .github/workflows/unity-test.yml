@@ -99,13 +99,23 @@ jobs:
             unity/UnityProject/TestResults.xml
             unity/UnityProject/UnityTest.log
 
+      - name: Convert NUnit3 results to JUnit
+        if: always()
+        shell: pwsh
+        run: |
+          python tools/nunit3_to_junit.py `
+            unity/UnityProject/TestResults.xml `
+            unity/UnityProject/TestResults.junit.xml
+
       - name: Publish NUnit test results
         if: always()
         uses: mikepenz/action-junit-report@v5
         with:
-          report_paths: unity/UnityProject/TestResults.xml
+          report_paths: unity/UnityProject/TestResults.junit.xml
           check_name: Unity EditMode Tests (Windows)
           fail_on_failure: true
+          fail_on_parse_error: true
+          require_tests: true
 
   # ─────────────────────────────────────────────────────────────────────────────
   # macOS runner  (labels: self-hosted, macos, unity)
@@ -168,13 +178,22 @@ jobs:
             unity/UnityProject/TestResults.xml
             unity/UnityProject/UnityTest.log
 
+      - name: Convert NUnit3 results to JUnit
+        if: always()
+        run: |
+          python3 tools/nunit3_to_junit.py \
+            unity/UnityProject/TestResults.xml \
+            unity/UnityProject/TestResults.junit.xml
+
       - name: Publish NUnit test results
         if: always()
         uses: mikepenz/action-junit-report@v5
         with:
-          report_paths: unity/UnityProject/TestResults.xml
+          report_paths: unity/UnityProject/TestResults.junit.xml
           check_name: Unity EditMode Tests (macOS)
           fail_on_failure: true
+          fail_on_parse_error: true
+          require_tests: true
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Summary — runs after both engine jobs regardless of their outcome.
