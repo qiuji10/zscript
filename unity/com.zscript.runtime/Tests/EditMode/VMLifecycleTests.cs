@@ -19,7 +19,7 @@ namespace ZScript.Tests
             _go = new GameObject("ZScriptVM_Test");
             _vm = _go.AddComponent<ZScriptVM>();
             // Awake is not called automatically in EditMode — invoke manually.
-            _vm.SendMessage("Awake", SendMessageOptions.DontRequireReceiver);
+            _vm.Awake();
         }
 
         [TearDown]

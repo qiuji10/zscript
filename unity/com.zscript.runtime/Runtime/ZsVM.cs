@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using UnityEngine.Scripting;
 
 [assembly: InternalsVisibleTo("ZScript.Editor")]
+[assembly: InternalsVisibleTo("ZScript.Tests.EditMode")]
 
 namespace ZScript
 {

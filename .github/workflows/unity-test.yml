@@ -58,9 +58,11 @@ jobs:
       - name: Configure CMake (MSVC x64)
         shell: cmd
         run: |
+          if exist %BUILD_DIR% rmdir /s /q %BUILD_DIR%
           cmake -B %BUILD_DIR% -A x64 ^
             -DZSCRIPT_UNITY=ON ^
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DUNITY_PLUGINS_DIR=%CD%\unity\com.zscript.runtime\Plugins
 
       - name: Build zscript_unity
         shell: cmd
@@ -130,9 +132,11 @@ jobs:
 
       - name: Configure CMake (macOS)
         run: |
+          rm -rf "$BUILD_DIR"
           cmake -B "$BUILD_DIR" \
             -DZSCRIPT_UNITY=ON \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUNITY_PLUGINS_DIR="$PWD/unity/com.zscript.runtime/Plugins"
 
       - name: Build zscript_unity
         run: cmake --build "$BUILD_DIR" --config Release --target zscript_unity

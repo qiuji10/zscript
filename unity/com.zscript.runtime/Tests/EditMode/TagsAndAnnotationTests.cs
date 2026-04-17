@@ -14,7 +14,7 @@ namespace ZScript.Tests
         {
             _go = new GameObject("ZScriptVM_Annot");
             _vm = _go.AddComponent<ZScriptVM>();
-            _vm.SendMessage("Awake", SendMessageOptions.DontRequireReceiver);
+            _vm.Awake();
         }
 
         [TearDown]

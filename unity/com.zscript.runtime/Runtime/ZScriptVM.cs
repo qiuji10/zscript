@@ -324,7 +324,7 @@ fn WaitWhile(pred) {
             ZsNative.zs_vm_register_fn(_vm, "StopCoroutine", _stopCoFn);
         }
 
-        private void Awake()
+        internal void Awake()
         {
             _vm = ZsNative.zs_vm_new();
             ZsNative.zs_vm_open_stdlib(_vm);
