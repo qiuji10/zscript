@@ -87,9 +87,6 @@ jobs:
           $proc = Start-Process -FilePath "$env:UNITY_PATH" `
             -ArgumentList "-batchmode -nographics -projectPath `"$RepoRoot\unity\UnityProject`" -runTests -testPlatform EditMode -testResults `"$RepoRoot\unity\UnityProject\TestResults.xml`" -logFile `"$RepoRoot\unity\UnityProject\UnityTest.log`"" `
             -PassThru
-          $log = "unity\UnityProject\UnityTest.log"
-          while (-not (Test-Path $log)) { Start-Sleep 1 }
-          Get-Content $log -Wait -Tail 0 &
           $proc.WaitForExit()
           exit $proc.ExitCode
 
@@ -160,15 +157,7 @@ jobs:
             -projectPath "$PWD/unity/UnityProject" \
             -runTests -testPlatform EditMode \
             -testResults "$PWD/unity/UnityProject/TestResults.xml" \
-            -logFile "$PWD/unity/UnityProject/UnityTest.log" &
-          UNITY_PID=$!
-          until [ -f unity/UnityProject/UnityTest.log ]; do sleep 1; done
-          tail -f unity/UnityProject/UnityTest.log &
-          TAIL_PID=$!
-          wait $UNITY_PID
-          UNITY_EXIT=$?
-          kill $TAIL_PID 2>/dev/null || true
-          exit $UNITY_EXIT
+            -logFile "$PWD/unity/UnityProject/UnityTest.log"
 
       - name: Upload test results
         if: always()
