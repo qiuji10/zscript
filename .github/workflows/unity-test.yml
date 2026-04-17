@@ -25,6 +25,10 @@ on:
       - '.github/workflows/unity-test.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  checks: write       # needed by mikepenz/action-junit-report to post check annotations
+
 # Cancel in-progress runs on the same branch to avoid queuing on the runners.
 concurrency:
   group: unity-test-${{ github.ref }}
@@ -73,9 +77,10 @@ jobs:
 
       - name: Run EditMode tests
         shell: cmd
+        timeout-minutes: 15
         run: |
           "%UNITY_PATH%" ^
-            -batchmode -nographics -quit ^
+            -batchmode -nographics ^
             -projectPath unity\UnityProject ^
             -runTests -testPlatform EditMode ^
             -testResults unity\UnityProject\TestResults.xml ^
@@ -133,9 +138,10 @@ jobs:
         run: cmake --install "$BUILD_DIR" --config Release
 
       - name: Run EditMode tests
+        timeout-minutes: 15
         run: |
           "$UNITY_PATH" \
-            -batchmode -nographics -quit \
+            -batchmode -nographics \
             -projectPath unity/UnityProject \
             -runTests -testPlatform EditMode \
             -testResults unity/UnityProject/TestResults.xml \

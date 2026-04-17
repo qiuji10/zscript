@@ -207,10 +207,10 @@ namespace ZScript
         /// </summary>
         public string[] FindAnnotatedClasses(string ns, string annotationName)
         {
-            if (_vm == IntPtr.Zero) return [];
+            if (_vm == IntPtr.Zero) return Array.Empty<string>();
             byte[] buf = new byte[4096];
             int count = ZsNative.zs_vm_find_annotated_classes(_vm, ns, annotationName, buf, buf.Length);
-            if (count == 0) return [];
+            if (count == 0) return Array.Empty<string>();
             return ParseNulSeparated(buf, count);
         }
 
@@ -220,10 +220,10 @@ namespace ZScript
         /// </summary>
         public string[] GetClassAnnotations(string className)
         {
-            if (_vm == IntPtr.Zero) return [];
+            if (_vm == IntPtr.Zero) return Array.Empty<string>();
             byte[] buf = new byte[1024];
             int count = ZsNative.zs_vm_get_class_annotations(_vm, className, buf, buf.Length);
-            if (count == 0) return [];
+            if (count == 0) return Array.Empty<string>();
             return ParseNulSeparated(buf, count);
         }
 
@@ -242,7 +242,7 @@ namespace ZScript
                         break; // double-NUL terminator
                 }
             }
-            return [.. results];
+            return results.ToArray();
         }
 
         /// <summary>Raw VM handle — for advanced binding code only.</summary>
