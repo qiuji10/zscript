@@ -42,10 +42,10 @@ jobs:
             cmake_extra: "-DCMAKE_OSX_ARCHITECTURES=arm64"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Cache CMake deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/_deps
           key: deps-${{ matrix.rid }}-${{ hashFiles('CMakeLists.txt') }}
@@ -66,7 +66,7 @@ jobs:
           find build -name "${{ matrix.lib }}" | head -1 | xargs -I{} cp {} native_out_${{ matrix.lib }}
 
       - name: Upload native artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: native-${{ matrix.rid }}
           path: native_out_${{ matrix.lib }}
@@ -82,7 +82,7 @@ jobs:
       nupkg:    ${{ steps.pack.outputs.nupkg }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve version
         id: version
@@ -99,7 +99,7 @@ jobs:
           echo "Packaging version: ${VERSION}"
 
       - name: Download all native artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: native_artifacts
 
@@ -135,7 +135,7 @@ jobs:
           echo "nupkg=${NUPKG}" >> "$GITHUB_OUTPUT"
 
       - name: Upload .nupkg artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: nupkg
           path: artifacts/nuget/*.nupkg
@@ -149,10 +149,10 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download .nupkg
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: nupkg
           path: artifacts/nuget
@@ -209,7 +209,7 @@ jobs:
 
     steps:
       - name: Download .nupkg
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: nupkg
           path: artifacts/nuget

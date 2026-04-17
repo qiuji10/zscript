@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Cache CMake deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.BUILD_DIR }}/_deps
           key: unity-plugin-${{ matrix.label }}-${{ hashFiles('CMakeLists.txt') }}
@@ -82,7 +82,7 @@ jobs:
         run: find "$STAGE_DIR" -type f | sort
 
       - name: Upload staged plugin artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ env.STAGE_DIR }}
@@ -95,7 +95,7 @@ jobs:
 
     steps:
       - name: Download staged plugin artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: unity-plugin-*
           path: package
@@ -106,7 +106,7 @@ jobs:
         run: find package -type f | sort
 
       - name: Upload combined Unity plugin package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: unity-plugin-package
           path: package
