@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using System;
 
 namespace ZScript.Tests
@@ -46,7 +47,7 @@ namespace ZScript.Tests
         [Test]
         public void LoadSource_SimpleFunction_ReturnsExpectedValue()
         {
-            const string src = "fn add(a, b) { return a + b; }";
+            const string src = "fn add(a, b) { return a + b }";
             bool loaded = _vm.LoadSource("<test>", src);
             Assert.IsTrue(loaded, "Script should compile without errors");
 
@@ -61,6 +62,7 @@ namespace ZScript.Tests
         public void LoadSource_SyntaxError_ReturnsFalse()
         {
             const string src = "fn broken( { }";
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(".*LoadSource error.*"));
             bool loaded = _vm.LoadSource("<bad>", src);
             Assert.IsFalse(loaded, "Syntax error must cause LoadSource to return false");
         }
@@ -68,6 +70,7 @@ namespace ZScript.Tests
         [Test]
         public void Call_UndefinedFunction_ReturnsNull()
         {
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(".*Call 'nonexistent' error.*"));
             var result = _vm.Call("nonexistent");
             Assert.IsNull(result, "Calling undefined function must return null");
         }
@@ -79,7 +82,7 @@ namespace ZScript.Tests
         [Test]
         public void Call_ReturnsBool_True()
         {
-            _vm.LoadSource("<test>", "fn yes() { return true; }");
+            _vm.LoadSource("<test>", "fn yes() { return true }");
             using var v = _vm.Call("yes");
             Assert.IsNotNull(v);
             Assert.IsTrue(v.AsBool());
@@ -88,7 +91,7 @@ namespace ZScript.Tests
         [Test]
         public void Call_ReturnsString()
         {
-            _vm.LoadSource("<test>", "fn greet() { return \"hello\"; }");
+            _vm.LoadSource("<test>", "fn greet() { return \"hello\" }");
             using var v = _vm.Call("greet");
             Assert.IsNotNull(v);
             Assert.AreEqual("hello", v.AsString());
@@ -111,7 +114,8 @@ namespace ZScript.Tests
         [Test]
         public void Call_RuntimeError_DoesNotThrow()
         {
-            _vm.LoadSource("<test>", "fn boom() { return 1 / 0; }");
+            _vm.LoadSource("<test>", "fn boom() { return 1 / 0 }");
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(".*Call 'boom' error.*"));
             Assert.DoesNotThrow(() => { using var v = _vm.Call("boom"); },
                 "Runtime errors must be caught internally and not propagate as C# exceptions");
         }

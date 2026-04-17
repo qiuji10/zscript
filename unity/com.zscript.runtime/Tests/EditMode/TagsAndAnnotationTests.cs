@@ -30,7 +30,8 @@ class MyActor {
 }
 ";
             _vm.LoadSource("<test>", src);
-            string[] classes = _vm.FindAnnotatedClasses("", "component");
+            // @component stores as {ns:"component", name:""} — single word is the namespace
+            string[] classes = _vm.FindAnnotatedClasses("component", "");
             Assert.IsNotNull(classes);
             Assert.IsTrue(classes.Length >= 1, "Expected at least one @component class");
             Assert.Contains("MyActor", classes);
