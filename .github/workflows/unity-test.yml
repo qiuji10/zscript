@@ -86,6 +86,11 @@ jobs:
             -testResults unity\UnityProject\TestResults.xml ^
             -logFile unity\UnityProject\UnityTest.log
 
+      - name: Print Unity log
+        if: always()
+        shell: cmd
+        run: type unity\UnityProject\UnityTest.log || echo "(no log file)"
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -146,6 +151,10 @@ jobs:
             -runTests -testPlatform EditMode \
             -testResults unity/UnityProject/TestResults.xml \
             -logFile unity/UnityProject/UnityTest.log
+
+      - name: Print Unity log
+        if: always()
+        run: cat unity/UnityProject/UnityTest.log || echo "(no log file)"
 
       - name: Upload test results
         if: always()
