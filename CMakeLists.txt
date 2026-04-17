@@ -48,6 +48,7 @@ add_library(zscript_core STATIC
     src/dap.cpp
 )
 target_include_directories(zscript_core PUBLIC src)
+set_target_properties(zscript_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # macOS: link CoreServices for FSEvents
 if(APPLE)

@@ -2,7 +2,7 @@ name: CI Prod
 
 on:
   push:
-    branches: [main, engine-tooling]
+    branches: [main]
     paths:
       - 'src/**'
       - 'unity/**'
