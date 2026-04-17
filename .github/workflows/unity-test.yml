@@ -16,13 +16,7 @@ name: Unity EditMode Tests
 # ──────────────────────────────────────────────────────────────────────────────
 
 on:
-  push:
-    branches: [ main, engine-tooling ]
-    paths:
-      - 'src/**'
-      - 'unity/**'
-      - 'CMakeLists.txt'
-      - '.github/workflows/unity-test.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:

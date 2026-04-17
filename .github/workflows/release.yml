@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version override (e.g. 0.5.0-preview)"
+        required: false
+        type: string
+        default: "0.0.0-dev"
+
+permissions:
+  contents: read
+
+jobs:
+  nuget-release:
+    name: NuGet release child pipeline
+    uses: ./.github/workflows/nuget-release.yml
+    with:
+      version: ${{ inputs.version || '' }}
+    secrets: inherit
+
+  release-summary:
+    name: Release summary
+    if: always()
+    needs: [nuget-release]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish summary
+        env:
+          NUGET_RESULT: ${{ needs.nuget-release.result }}
+        run: |
+          echo "### Release summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Child pipeline | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| NuGet release | ${NUGET_RESULT} |" >> "$GITHUB_STEP_SUMMARY"

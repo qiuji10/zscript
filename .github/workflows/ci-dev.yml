@@ -1,0 +1,63 @@
+name: CI Dev
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'src/**'
+      - 'unity/**'
+      - 'nuget/**'
+      - 'tools/**'
+      - 'fuzz/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'src/**'
+      - 'unity/**'
+      - 'nuget/**'
+      - 'tools/**'
+      - 'fuzz/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      rng_seed:
+        description: "Catch2 RNG seed to pass to tests, e.g. 1150817212"
+        required: false
+        type: string
+        default: ""
+      run_fuzz:
+        description: "Run fuzz smoke jobs"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  native-ci:
+    name: Native validation
+    uses: ./.github/workflows/native-ci.yml
+    with:
+      rng_seed: ${{ inputs.rng_seed || '' }}
+      run_fuzz: ${{ github.event_name != 'workflow_dispatch' || inputs.run_fuzz }}
+
+  dev-summary:
+    name: Dev summary
+    if: always()
+    needs: [native-ci]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish summary
+        env:
+          NATIVE_RESULT: ${{ needs.native-ci.result }}
+        run: |
+          echo "### Dev CI summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Child pipeline | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Native validation | ${NATIVE_RESULT} |" >> "$GITHUB_STEP_SUMMARY"

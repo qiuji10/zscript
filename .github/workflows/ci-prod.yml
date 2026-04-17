@@ -1,0 +1,79 @@
+name: CI Prod
+
+on:
+  push:
+    branches: [main, engine-tooling]
+    paths:
+      - 'src/**'
+      - 'unity/**'
+      - 'nuget/**'
+      - 'tools/**'
+      - 'fuzz/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      rng_seed:
+        description: "Catch2 RNG seed to pass to tests, e.g. 1150817212"
+        required: false
+        type: string
+        default: ""
+      run_fuzz:
+        description: "Run fuzz smoke jobs"
+        required: false
+        type: boolean
+        default: true
+      run_unity:
+        description: "Run Unity EditMode child pipeline"
+        required: false
+        type: boolean
+        default: true
+      run_unity_package:
+        description: "Run Unity plugin packaging child pipeline"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  native-ci:
+    name: Native validation
+    uses: ./.github/workflows/native-ci.yml
+    with:
+      rng_seed: ${{ inputs.rng_seed || '' }}
+      run_fuzz: ${{ github.event_name != 'workflow_dispatch' || inputs.run_fuzz }}
+
+  unity-tests:
+    name: Unity EditMode child pipeline
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_unity }}
+    uses: ./.github/workflows/unity-test.yml
+    secrets: inherit
+
+  unity-plugin-package:
+    name: Unity plugin package child pipeline
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_unity_package }}
+    uses: ./.github/workflows/unity-plugin-package.yml
+
+  prod-summary:
+    name: Prod summary
+    if: always()
+    needs: [native-ci, unity-tests, unity-plugin-package]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish summary
+        env:
+          NATIVE_RESULT: ${{ needs.native-ci.result }}
+          UNITY_RESULT: ${{ needs.unity-tests.result }}
+          PACKAGE_RESULT: ${{ needs.unity-plugin-package.result }}
+        run: |
+          echo "### Prod CI summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Child pipeline | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Native validation | ${NATIVE_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Unity EditMode tests | ${UNITY_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Unity plugin package | ${PACKAGE_RESULT} |" >> "$GITHUB_STEP_SUMMARY"

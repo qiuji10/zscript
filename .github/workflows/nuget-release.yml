@@ -1,29 +1,22 @@
-name: NuGet Package
-
-# Builds ZScript.Native on every tagged release (v*.*.*).
-# Also available via workflow_dispatch for manual test builds.
-#
-# Job graph:
-#   native-build (matrix: win/linux/mac)
-#     └─► nuget-pack  (assembles runtimes/ layout, runs dotnet pack)
-#           └─► nuget-smoke  (installs from local feed, runs minimal script)
-#           └─► nuget-publish  (uploads to NuGet.org — tagged releases only)
+name: NuGet Release
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+  workflow_call:
+    inputs:
+      version:
+        description: "Package version override (e.g. 0.5.0-preview)"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       version:
         description: "Package version override (e.g. 0.5.0-preview)"
         required: false
+        type: string
         default: "0.0.0-dev"
 
 jobs:
-  # ──────────────────────────────────────────────────────────────────────────
-  # 1. Build the native shared library on each platform.
-  # ──────────────────────────────────────────────────────────────────────────
   native-build:
     name: Native build (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
@@ -70,7 +63,6 @@ jobs:
       - name: Locate native lib
         shell: bash
         run: |
-          # Find the built shared library and copy to a known path.
           find build -name "${{ matrix.lib }}" | head -1 | xargs -I{} cp {} native_out_${{ matrix.lib }}
 
       - name: Upload native artifact
@@ -80,9 +72,6 @@ jobs:
           path: native_out_${{ matrix.lib }}
           retention-days: 1
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # 2. Assemble the runtimes/ layout and pack the NuGet package.
-  # ──────────────────────────────────────────────────────────────────────────
   nuget-pack:
     name: dotnet pack
     needs: native-build
@@ -99,10 +88,12 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          elif [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="0.0.0-dev"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Packaging version: ${VERSION}"
@@ -149,9 +140,6 @@ jobs:
           name: nupkg
           path: artifacts/nuget/*.nupkg
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # 3. Smoke test — install from local feed, run a minimal script.
-  # ──────────────────────────────────────────────────────────────────────────
   nuget-smoke:
     name: Smoke test (${{ matrix.os }})
     needs: nuget-pack
@@ -213,9 +201,6 @@ jobs:
           cp ../../smoke/ZScriptSmoke/smoke.zs .
           dotnet run
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # 4. Publish to NuGet.org (tagged releases only).
-  # ──────────────────────────────────────────────────────────────────────────
   nuget-publish:
     name: Publish to NuGet.org
     needs: [nuget-pack, nuget-smoke]
