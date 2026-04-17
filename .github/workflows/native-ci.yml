@@ -1,5 +1,8 @@
 name: Native CI
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 on:
   workflow_call:
     inputs:
@@ -99,7 +102,7 @@ jobs:
             exe: ./build-fuzz/fuzz_lexer_parser
             asan_options: ""
           - os: macos-latest
-            install: brew install llvm ninja
+            install: brew list llvm >/dev/null 2>&1 || brew install llvm; brew list ninja >/dev/null 2>&1 || brew install ninja
             clang: "$(brew --prefix llvm)/bin/clang++"
             generator: ""
             exe: ./build-fuzz/fuzz_lexer_parser

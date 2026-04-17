@@ -1,5 +1,8 @@
 name: Unity EditMode Tests
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Security model (public repo, self-hosted runners on personal machines):
 #   1. Only invoke this workflow from trusted push/manual parent workflows — never
