@@ -70,9 +70,19 @@ jobs:
         run: cmake --build build --config Release --parallel
 
       - name: Test
+        shell: bash
         run: |
           echo "Running ctest with Catch2 RNG seed: ${{ env.RESOLVED_TEST_RNG_SEED }}"
-          ctest --test-dir build -C Release --output-on-failure --parallel 4
+          ctest --test-dir build -C Release --output-on-failure --parallel 4 \
+            --output-junit "$PWD/build/native-${{ matrix.os }}.junit.xml"
+
+      - name: Upload JUnit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-junit-${{ matrix.os }}
+          path: build/native-${{ matrix.os }}.junit.xml
+          if-no-files-found: warn
 
   fuzz:
     name: Fuzzer (${{ matrix.os }})

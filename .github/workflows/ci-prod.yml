@@ -36,7 +36,6 @@ on:
 
 permissions:
   contents: read
-  checks: write
 
 jobs:
   native-ci:
@@ -58,22 +57,37 @@ jobs:
     uses: ./.github/workflows/unity-plugin-package.yml
 
   prod-summary:
-    name: Prod summary
+    name: Summary
     if: always()
     needs: [native-ci, unity-tests, unity-plugin-package]
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v5
+
+      - name: Download JUnit test artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-junit-*'
+          path: test-artifacts
+          merge-multiple: false
+
       - name: Publish summary
         env:
           NATIVE_RESULT: ${{ needs.native-ci.result }}
           UNITY_RESULT: ${{ needs.unity-tests.result }}
           PACKAGE_RESULT: ${{ needs.unity-plugin-package.result }}
+        shell: bash
         run: |
-          echo "### Prod CI summary" >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/render_junit_summary.py test-artifacts >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Child pipeline | Result |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Native validation | ${NATIVE_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Unity EditMode tests | ${UNITY_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Unity plugin package | ${PACKAGE_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${UNITY_RESULT}" = "skipped" ]; then
+            echo "> Unity EditMode tests were skipped for this run." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${PACKAGE_RESULT}" != "success" ] && [ "${PACKAGE_RESULT}" != "skipped" ]; then
+            echo "> Unity plugin packaging result: ${PACKAGE_RESULT}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${NATIVE_RESULT}" != "success" ] && [ "${NATIVE_RESULT}" != "skipped" ]; then
+            echo "> Native validation result: ${NATIVE_RESULT}" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -15,6 +15,9 @@
 
 # Local tool caches
 /.cache/
+__pycache__/
+*.pyc
+*.pyo
 
 # Editor / OS files
 /.idea/

@@ -111,12 +111,3 @@ jobs:
           name: unity-plugin-package
           path: package
           if-no-files-found: error
-
-      - name: Summarize packaged outputs
-        shell: bash
-        run: |
-          echo "### Unity plugin package" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Packaged files:" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          find package -type f | sort | sed 's#^#- `#; s#$#`#' >> "$GITHUB_STEP_SUMMARY"

@@ -33,6 +33,16 @@ on:
         required: false
         type: boolean
         default: true
+      run_unity:
+        description: "Run Unity EditMode child pipeline"
+        required: false
+        type: boolean
+        default: true
+      run_unity_package:
+        description: "Run Unity plugin packaging child pipeline"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -45,19 +55,49 @@ jobs:
       rng_seed: ${{ inputs.rng_seed || '' }}
       run_fuzz: ${{ github.event_name != 'workflow_dispatch' || inputs.run_fuzz }}
 
+  unity-tests:
+    name: Unity EditMode child pipeline
+    if: ${{ (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch' || inputs.run_unity) }}
+    uses: ./.github/workflows/unity-test.yml
+    secrets: inherit
+
+  unity-plugin-package:
+    name: Unity plugin package child pipeline
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_unity_package }}
+    uses: ./.github/workflows/unity-plugin-package.yml
+
   dev-summary:
-    name: Dev summary
+    name: Summary
     if: always()
-    needs: [native-ci]
+    needs: [native-ci, unity-tests, unity-plugin-package]
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v5
+
+      - name: Download JUnit test artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-junit-*'
+          path: test-artifacts
+          merge-multiple: false
+
       - name: Publish summary
         env:
           NATIVE_RESULT: ${{ needs.native-ci.result }}
+          UNITY_RESULT: ${{ needs.unity-tests.result }}
+          PACKAGE_RESULT: ${{ needs.unity-plugin-package.result }}
+        shell: bash
         run: |
-          echo "### Dev CI summary" >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/render_junit_summary.py test-artifacts >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Child pipeline | Result |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Native validation | ${NATIVE_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${UNITY_RESULT}" = "skipped" ]; then
+            echo "> Unity EditMode tests were skipped for this run." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${PACKAGE_RESULT}" != "success" ] && [ "${PACKAGE_RESULT}" != "skipped" ]; then
+            echo "> Unity plugin packaging result: ${PACKAGE_RESULT}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${NATIVE_RESULT}" != "success" ] && [ "${NATIVE_RESULT}" != "skipped" ]; then
+            echo "> Native validation result: ${NATIVE_RESULT}" >> "$GITHUB_STEP_SUMMARY"
+          fi

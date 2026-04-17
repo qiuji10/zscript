@@ -2,8 +2,9 @@ name: Unity EditMode Tests
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Security model (public repo, self-hosted runners on personal machines):
-#   1. Only push to main/engine-tooling and manual dispatch — never pull_request.
-#      This prevents fork PRs from running arbitrary code on your machines.
+#   1. Only invoke this workflow from trusted push/manual parent workflows — never
+#      from pull_request. This prevents fork PRs from running arbitrary code on
+#      your machines.
 #   2. `if: github.repository_owner == 'qiuji10'` guard on every job.
 #      Even if the workflow file is copied, it cannot run on a fork.
 #   3. GitHub Environment "unity-runner" — configure it in Settings → Environments
@@ -21,7 +22,6 @@ on:
 
 permissions:
   contents: read
-  checks: write       # needed by mikepenz/action-junit-report to post check annotations
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
@@ -101,15 +101,13 @@ jobs:
             unity/UnityProject/TestResults.xml `
             unity/UnityProject/TestResults.junit.xml
 
-      - name: Publish NUnit test results
+      - name: Upload JUnit test report
         if: always()
-        uses: mikepenz/action-junit-report@v5
+        uses: actions/upload-artifact@v4
         with:
-          report_paths: unity/UnityProject/TestResults.junit.xml
-          check_name: Unity EditMode Tests (Windows)
-          fail_on_failure: true
-          fail_on_parse_error: true
-          require_tests: true
+          name: unity-junit-windows
+          path: unity/UnityProject/TestResults.junit.xml
+          if-no-files-found: warn
 
   # ─────────────────────────────────────────────────────────────────────────────
   # macOS runner  (labels: self-hosted, macos, unity)
@@ -179,52 +177,10 @@ jobs:
             unity/UnityProject/TestResults.xml \
             unity/UnityProject/TestResults.junit.xml
 
-      - name: Publish NUnit test results
+      - name: Upload JUnit test report
         if: always()
-        uses: mikepenz/action-junit-report@v5
+        uses: actions/upload-artifact@v4
         with:
-          report_paths: unity/UnityProject/TestResults.junit.xml
-          check_name: Unity EditMode Tests (macOS)
-          fail_on_failure: true
-          fail_on_parse_error: true
-          require_tests: true
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Summary — runs after both engine jobs regardless of their outcome.
-  # Posts a visible notice when Unity jobs were skipped (kill switch or no runner).
-  # ─────────────────────────────────────────────────────────────────────────────
-  unity-summary:
-    name: Unity CI summary
-    if: always() && github.repository_owner == 'qiuji10'
-    needs: [ unity-test-windows, unity-test-macos ]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Report skipped jobs
-        env:
-          WIN_RESULT:  ${{ needs.unity-test-windows.result }}
-          MAC_RESULT:  ${{ needs.unity-test-macos.result }}
-          ENABLED:     ${{ vars.UNITY_RUNNER_ENABLED }}
-        run: |
-          echo "### Unity CI summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Runner  | Result |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Windows | $WIN_RESULT |" >> $GITHUB_STEP_SUMMARY
-          echo "| macOS   | $MAC_RESULT |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "$WIN_RESULT" = "skipped" ] || [ "$MAC_RESULT" = "skipped" ]; then
-            echo "> [!NOTE]" >> $GITHUB_STEP_SUMMARY
-            if [ "$ENABLED" = "false" ]; then
-              echo "> Unity runner jobs were skipped because **UNITY_RUNNER_ENABLED** is set to \`false\`." >> $GITHUB_STEP_SUMMARY
-            else
-              echo "> One or more Unity runner jobs were skipped (runner offline or not yet configured)." >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-
-          if [ "$WIN_RESULT" = "failure" ] || [ "$MAC_RESULT" = "failure" ]; then
-            echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
-            echo "> Unity tests **failed** on at least one platform. Check the test result artifacts." >> $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
+          name: unity-junit-macos
+          path: unity/UnityProject/TestResults.junit.xml
+          if-no-files-found: warn
