@@ -48,3 +48,21 @@ unity/UnityProject/Logs/
 unity/UnityProject/UserSettings/
 unity/UnityProject/Recordings/
 unity/UnityProject/MemoryCaptures/
+
+# Documentation vault local metadata
+documentation/**/.makemd/
+documentation/**/.space/
+documentation/.obsidian/*
+!documentation/.obsidian/app.json
+!documentation/.obsidian/appearance.json
+!documentation/.obsidian/community-plugins.json
+!documentation/.obsidian/core-plugins.json
+!documentation/.obsidian/graph.json
+documentation-internal/**/.makemd/
+documentation-internal/**/.space/
+documentation-internal/.obsidian/*
+!documentation-internal/.obsidian/app.json
+!documentation-internal/.obsidian/appearance.json
+!documentation-internal/.obsidian/community-plugins.json
+!documentation-internal/.obsidian/core-plugins.json
+!documentation-internal/.obsidian/graph.json
