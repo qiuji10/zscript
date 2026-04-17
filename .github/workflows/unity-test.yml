@@ -77,13 +77,15 @@ jobs:
         run: |
           if exist unity\UnityProject\Temp rmdir /s /q unity\UnityProject\Temp
           if exist unity\UnityProject\Logs rmdir /s /q unity\UnityProject\Logs
+          if exist unity\UnityProject\Library rmdir /s /q unity\UnityProject\Library
 
       - name: Run EditMode tests
         shell: pwsh
         timeout-minutes: 15
         run: |
+          $RepoRoot = (Get-Location).Path
           $proc = Start-Process -FilePath "$env:UNITY_PATH" `
-            -ArgumentList "-batchmode -nographics -projectPath unity\UnityProject -runTests -testPlatform EditMode -testResults unity\UnityProject\TestResults.xml -logFile unity\UnityProject\UnityTest.log" `
+            -ArgumentList "-batchmode -nographics -projectPath `"$RepoRoot\unity\UnityProject`" -runTests -testPlatform EditMode -testResults `"$RepoRoot\unity\UnityProject\TestResults.xml`" -logFile `"$RepoRoot\unity\UnityProject\UnityTest.log`"" `
             -PassThru
           $log = "unity\UnityProject\UnityTest.log"
           while (-not (Test-Path $log)) { Start-Sleep 1 }
@@ -148,17 +150,17 @@ jobs:
         run: xattr -rd com.apple.quarantine unity/com.zscript.runtime/Plugins/macOS/ || true
 
       - name: Clean Unity temp files
-        run: rm -rf unity/UnityProject/Temp unity/UnityProject/Logs
+        run: rm -rf unity/UnityProject/Temp unity/UnityProject/Logs unity/UnityProject/Library
 
       - name: Run EditMode tests
         timeout-minutes: 15
         run: |
           "$UNITY_PATH" \
             -batchmode -nographics \
-            -projectPath unity/UnityProject \
+            -projectPath "$PWD/unity/UnityProject" \
             -runTests -testPlatform EditMode \
-            -testResults unity/UnityProject/TestResults.xml \
-            -logFile unity/UnityProject/UnityTest.log &
+            -testResults "$PWD/unity/UnityProject/TestResults.xml" \
+            -logFile "$PWD/unity/UnityProject/UnityTest.log" &
           UNITY_PID=$!
           until [ -f unity/UnityProject/UnityTest.log ]; do sleep 1; done
           tail -f unity/UnityProject/UnityTest.log &
