@@ -37,7 +37,7 @@ unity/Plugins/**/*.so
 unity/Plugins/**/*.dylib
 unity/Plugins/**/*.a
 
-# Unity project generated folders
+# Unity project generated folders (and any meta files inside them)
 unity/UnityProject/Library/
 unity/UnityProject/Temp/
 unity/UnityProject/obj/

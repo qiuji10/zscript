@@ -1,0 +1,3 @@
+# Exclude Unity project test files from the UPM package view.
+# Unity uses .npmignore to filter what it sees when resolving a local package.
+UnityProject/

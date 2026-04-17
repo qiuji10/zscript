@@ -359,10 +359,14 @@ namespace ZScript
                 // ZsActionEvent subscribes once to C# event; distributes to all
                 // registered ZScript closures.  The ZsActionEvent stays alive via
                 // the C# event subscription holding its internal handler delegate.
+                // SceneManager.sceneLoaded is UnityAction<Scene,LoadSceneMode>, not
+                // System.Action — bridge via a stored UnityAction wrapper so += / -=
+                // operate on the same delegate instance.
+                UnityEngine.Events.UnityAction<UnityEngine.SceneManagement.Scene, LoadSceneMode> sceneLoadedBridge = null;
                 var sceneLoadedEvent = new ZsActionEvent<UnityEngine.SceneManagement.Scene, LoadSceneMode>(
                     rawVm,
-                    h => SceneManager.sceneLoaded += h,
-                    h => SceneManager.sceneLoaded -= h,
+                    h => SceneManager.sceneLoaded += (sceneLoadedBridge = (s, m) => h(s, m)),
+                    h => { SceneManager.sceneLoaded -= sceneLoadedBridge; sceneLoadedBridge = null; },
                     scene => ZsNative.zs_value_string(scene.name),
                     mode  => ZsNative.zs_value_int((int)mode));
                 // Cache the proxy; __index returns a clone each access so all

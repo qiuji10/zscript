@@ -2,7 +2,7 @@
     "name": "ZScript.Editor",
     "rootNamespace": "ZScript.Editor",
     "references": [
-        "GUID:ZScript.Runtime"
+        "ZScript.Runtime"
     ],
     "includePlatforms": [
         "Editor"

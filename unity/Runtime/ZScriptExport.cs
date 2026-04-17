@@ -1,6 +1,7 @@
 // ZScriptExport.cs — Attribute definitions for the [ZScriptExport] codegen system.
 // Apply [ZScriptExport] to any class, struct, or static class you want accessible
 // from ZScript.  Apply [ZScriptHide] to members you want excluded from codegen.
+#nullable enable
 using System;
 
 namespace ZScript
