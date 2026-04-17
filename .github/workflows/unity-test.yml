@@ -29,11 +29,6 @@ permissions:
   contents: read
   checks: write       # needed by mikepenz/action-junit-report to post check annotations
 
-# Cancel in-progress runs on the same branch to avoid queuing on the runners.
-concurrency:
-  group: unity-test-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   # Windows runner  (labels: self-hosted, windows, unity)
@@ -76,20 +71,17 @@ jobs:
         run: cmake --install %BUILD_DIR% --config Release
 
       - name: Run EditMode tests
-        shell: cmd
+        shell: pwsh
         timeout-minutes: 15
         run: |
-          "%UNITY_PATH%" ^
-            -batchmode -nographics ^
-            -projectPath unity\UnityProject ^
-            -runTests -testPlatform EditMode ^
-            -testResults unity\UnityProject\TestResults.xml ^
-            -logFile unity\UnityProject\UnityTest.log
-
-      - name: Print Unity log
-        if: always()
-        shell: cmd
-        run: type unity\UnityProject\UnityTest.log || echo "(no log file)"
+          $proc = Start-Process -FilePath "$env:UNITY_PATH" `
+            -ArgumentList "-batchmode -nographics -projectPath unity\UnityProject -runTests -testPlatform EditMode -testResults unity\UnityProject\TestResults.xml -logFile unity\UnityProject\UnityTest.log" `
+            -PassThru
+          $log = "unity\UnityProject\UnityTest.log"
+          while (-not (Test-Path $log)) { Start-Sleep 1 }
+          Get-Content $log -Wait -Tail 0 &
+          $proc.WaitForExit()
+          exit $proc.ExitCode
 
       - name: Upload test results
         if: always()
@@ -150,11 +142,15 @@ jobs:
             -projectPath unity/UnityProject \
             -runTests -testPlatform EditMode \
             -testResults unity/UnityProject/TestResults.xml \
-            -logFile unity/UnityProject/UnityTest.log
-
-      - name: Print Unity log
-        if: always()
-        run: cat unity/UnityProject/UnityTest.log || echo "(no log file)"
+            -logFile unity/UnityProject/UnityTest.log &
+          UNITY_PID=$!
+          until [ -f unity/UnityProject/UnityTest.log ]; do sleep 1; done
+          tail -f unity/UnityProject/UnityTest.log &
+          TAIL_PID=$!
+          wait $UNITY_PID
+          UNITY_EXIT=$?
+          kill $TAIL_PID 2>/dev/null || true
+          exit $UNITY_EXIT
 
       - name: Upload test results
         if: always()
