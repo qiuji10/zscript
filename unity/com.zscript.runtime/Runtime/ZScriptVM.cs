@@ -271,10 +271,10 @@ fn WaitForFixedUpdate() {
     return { __yield_type: ""WaitForFixedUpdate"" }
 }
 fn WaitUntil(pred) {
-    return { __yield_type: ""WaitUntil"", fn: pred }
+    return { __yield_type: ""WaitUntil"", pred: pred }
 }
 fn WaitWhile(pred) {
-    return { __yield_type: ""WaitWhile"", fn: pred }
+    return { __yield_type: ""WaitWhile"", pred: pred }
 }
 ";
 

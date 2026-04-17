@@ -16,8 +16,8 @@
 //   { __yield_type: "WaitForSeconds",    seconds: <float>  }
 //   { __yield_type: "WaitForEndOfFrame"                    }
 //   { __yield_type: "WaitForFixedUpdate"                   }
-//   { __yield_type: "WaitUntil",         fn: <closure>     }
-//   { __yield_type: "WaitWhile",         fn: <closure>     }
+//   { __yield_type: "WaitUntil",         pred: <closure>     }
+//   { __yield_type: "WaitWhile",         pred: <closure>     }
 // Any other yielded value (nil, number, …) → one-frame wait (Current = null).
 using System;
 using System.Collections;
@@ -132,14 +132,14 @@ namespace ZScript
                     // the native ZsValue; the lambda keeps fnHandle alive until
                     // Unity's scheduler discards the WaitUntil, after which it is
                     // collected and freed by the SafeHandle finalizer.
-                    ZsValueHandle fnHandle = ExtractField(val, "fn");
+                    ZsValueHandle fnHandle = ExtractField(val, "pred");
                     val.Dispose();
                     return new WaitUntil(() => CallPredicateClosure(fnHandle));
                 }
 
                 case "WaitWhile":
                 {
-                    ZsValueHandle fnHandle = ExtractField(val, "fn");
+                    ZsValueHandle fnHandle = ExtractField(val, "pred");
                     val.Dispose();
                     return new WaitWhile(() => CallPredicateClosure(fnHandle));
                 }
