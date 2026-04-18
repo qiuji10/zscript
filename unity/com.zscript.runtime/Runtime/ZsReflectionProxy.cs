@@ -14,8 +14,8 @@
 //   Vector2              ↔ {x, y}
 //   Vector3              ↔ {x, y, z}
 //   Vector4 / Quaternion ↔ {x, y, z, w}
-//   UnityEngine.Object   ↔ object handle (reflection proxy)
-//   other reference type ↔ object handle (reflection proxy)
+//   UnityEngine.Object   ↔ object handle (generated wrapper when available, otherwise reflection proxy)
+//   other reference type ↔ object handle (generated wrapper when available, otherwise reflection proxy)
 //
 // IL2CPP note: reflection is preserved by default for UnityEngine assemblies.
 // For custom assemblies use a link.xml to prevent managed stripping.

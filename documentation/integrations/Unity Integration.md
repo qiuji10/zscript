@@ -191,7 +191,7 @@ For types marked `[ZScriptExport]`, the export generator writes binding code aut
 
 Run via **Tools > ZScript > Generate Export Bindings**.
 
-Mark a C# class:
+Static exports create ZScript global tables. Mark a C# class:
 
 ```csharp
 [ZScriptExport]
@@ -235,8 +235,62 @@ Supported member kinds:
 | `public static` properties | same primitive types |
 | `public static event Action` | no-arg events |
 | `public static event Action<T>` | single primitive-typed arg |
+| `public instance` methods | non-generic methods whose argument and return types can be referenced from generated C# |
+| `public instance` properties and fields | readable/writable members whose types can be referenced from generated C# |
 
-Members with unsupported types are skipped with a `// TODO` comment in the generated file.
+For non-static C# classes, the same generated file also implements an instance wrapper. `ZScriptVM.WrapSmart(obj)` uses that wrapper before trying adapters or reflection fallback.
+
+```csharp
+[ZScriptExport]
+public sealed class GameHost
+{
+    public float speed { get; set; } = 5.0f;
+    public Transform playerTransform { get; set; }
+
+    public void ResetWorld() { }
+}
+```
+
+```csharp
+ZsValueHandle host = vm.WrapSmart(gameHost);
+vm.Call("tick", host);
+```
+
+```ts
+fn tick(host) {
+    host.ResetWorld()
+    let pos = host.playerTransform.position
+    host.speed = host.speed + 1.0
+}
+```
+
+The wrapper selection order is:
+
+1. generated `IZScriptInstanceExport` binding
+2. `@unity.adapter` wrapper, if registered
+3. reflection proxy fallback
+
+Generated wrappers also use `WrapSmart` for returned reference objects. For example, if a generated `GameHost` property returns a `Transform`, that `Transform` can itself be wrapped by a generated `Transform_ZsBinding` when Unity core bindings are present.
+
+Members with unsupported types are skipped with a `// TODO` comment in the generated file. Unknown instance members fall back to reflection at runtime.
+
+### Codegen — Unity Core Bindings
+
+Use **Tools > ZScript > Generate Unity Core Bindings** to generate allowlisted instance bindings for common Unity runtime types.
+
+The allowlist currently includes:
+
+- `GameObject`
+- `Transform`
+- `Rigidbody`
+- `Camera`
+- `Renderer`
+- `Material`
+- `Collider`
+
+These generated files implement instance exporters only. They do not replace hand-written globals such as `GameObject`, `Debug`, `Input`, `Time`, or `Mathf`.
+
+The allowlist is deliberate. Generating every public UnityEngine API is not supported because Unity exposes obsolete, platform-specific, editor-only, overloaded, generic, and removed legacy APIs that are not safe to compile into runtime bindings. Unsupported or filtered APIs continue to work through reflection fallback when available.
 
 Use `[ZScriptHide]` to exclude individual members from codegen:
 
@@ -251,7 +305,7 @@ public static class GameManager
 }
 ```
 
-Re-run the tool after changing `[ZScriptExport]` types. Generated files live in `Assets/ZScriptGenerated/` and should be re-generated rather than edited by hand.
+Re-run the relevant tool after changing `[ZScriptExport]` types or the Unity core allowlist. Generated files live in `Assets/ZScriptGenerated/` and should be re-generated rather than edited by hand.
 
 ---
 
@@ -284,7 +338,7 @@ This is one of the integration surfaces most likely to surface cross-language re
 
 ## IL2CPP / AOT Builds
 
-ZScript uses reflection to discover `IZScriptExport` implementations and to access `[ZScriptExport]` types at runtime. These types must be preserved from IL2CPP stripping.
+ZScript uses reflection to discover `IZScriptExport` and `IZScriptInstanceExport` implementations. Reflection fallback can also access members that are not covered by generated bindings. These types must be preserved from IL2CPP stripping.
 
 Run **Tools > ZScript > Generate IL2CPP link.xml** to write `Assets/link.xml` automatically. The generated file preserves:
 
@@ -292,8 +346,9 @@ Run **Tools > ZScript > Generate IL2CPP link.xml** to write `Assets/link.xml` au
 - The `ZScriptGenerated` namespace (generated bindings)
 - All types marked `[ZScriptExport]`
 - All `IZScriptExport` implementations
+- All `IZScriptInstanceExport` implementations
 
-Re-generate `link.xml` whenever `[ZScriptExport]` types or `IZScriptExport` implementations are added or removed before making an IL2CPP build.
+Re-generate `link.xml` whenever `[ZScriptExport]` types, `IZScriptExport` implementations, or `IZScriptInstanceExport` implementations are added or removed before making an IL2CPP build.
 
 ---
 

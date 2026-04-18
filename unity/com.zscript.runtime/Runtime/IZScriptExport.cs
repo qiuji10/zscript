@@ -4,7 +4,9 @@
 // during ZScriptVM.Awake(). No manual wiring is needed.
 //
 // The generated binding classes produced by Tools > ZScript > Generate Export Bindings
-// implement this interface automatically, so they are picked up on every VM startup.
+// implement this interface for static/global exports. Instance wrappers implement
+// IZScriptInstanceExport instead, or both interfaces when a generated file covers
+// both static and instance members.
 //
 // Hand-written binding example:
 //

@@ -8,8 +8,8 @@ namespace ZScript
 {
     /// <summary>
     /// Marks a C# type for ZScript binding codegen.
-    /// The ZScriptExportGen tool scans assemblies for this attribute and generates
-    /// C++ binding snippets + C# dispatch stubs automatically.
+    /// The Unity export generator scans assemblies for this attribute and generates
+    /// C# static and/or instance dispatch stubs automatically.
     /// </summary>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct,
                     AllowMultiple = false, Inherited = false)]
