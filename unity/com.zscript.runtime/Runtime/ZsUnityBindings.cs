@@ -43,7 +43,7 @@ namespace ZScript
             var fns = new System.Collections.Generic.List<ZsNativeFn>();
 
             // ── Reflection proxy (shared __index/__newindex for all C# objects) ──
-            var refProxy = new ZsReflectionProxy(rawVm, pool);
+            var refProxy = new ZsReflectionProxy(vm);
             ReflectionProxy = refProxy;
 
             // ── local helpers ───────────────────────────────────────────────
@@ -90,7 +90,7 @@ namespace ZScript
             IntPtr wrapObj(object obj) {
                 if (obj == null) return ZsNative.zs_value_nil();
                 if (obj is UnityEngine.Object uObj && uObj == null) return ZsNative.zs_value_nil();
-                return refProxy.Wrap(obj);
+                return vm.WrapSmartRaw(obj);
             }
 
             // Set a ZScript global to a table, then free the ZsValueBox wrapper.

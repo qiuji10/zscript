@@ -18,7 +18,11 @@ namespace ZScript
         // SafeHandle.InvalidHandleValue = IntPtr.Zero
         public ZsValueHandle() : base(IntPtr.Zero, ownsHandle: true) { }
 
-        internal ZsValueHandle(IntPtr raw, bool ownsHandle = true)
+        /// <summary>
+        /// Construct a handle wrapper around an existing native ZScript value.
+        /// Intended for generated or advanced binding code.
+        /// </summary>
+        public ZsValueHandle(IntPtr raw, bool ownsHandle = true)
             : base(IntPtr.Zero, ownsHandle)
         {
             SetHandle(raw);
@@ -93,6 +97,6 @@ namespace ZScript
         /// Return the raw IntPtr for passing to native calls.
         /// The caller must NOT free this — the SafeHandle still owns it.
         /// </summary>
-        internal IntPtr Raw => handle;
+        public IntPtr Raw => handle;
     }
 }

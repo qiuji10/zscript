@@ -49,6 +49,7 @@ namespace ZScript
         // ── Per-VM state ──────────────────────────────────────────────────────────
         private readonly IntPtr      _rawVm;
         private readonly ZsObjectPool _pool;
+        private readonly ZScriptVM _owner;
 
         // Method dispatch delegates, cached per (Type, methodName).
         // Kept in a list so the GC never collects them while the C++ VM holds pointers.
@@ -70,6 +71,12 @@ namespace ZScript
             NewIndexFn = CreateNewIndexFn();
             _pins.Add(IndexFn);
             _pins.Add(NewIndexFn);
+        }
+
+        public ZsReflectionProxy(ZScriptVM owner)
+            : this(owner.RawVM, owner.ObjectPool)
+        {
+            _owner = owner;
         }
 
         // ── Wrap a C# object with reflection proxy metamethods ────────────────────
@@ -113,12 +120,25 @@ namespace ZScript
         };
 
         // ── Member resolution ─────────────────────────────────────────────────────
+        public IntPtr GetMember(object obj, string key)
+        {
+            if (obj == null) return ZsNative.zs_value_nil();
+            return ResolveMember(obj, obj.GetType(), key);
+        }
+
+        public void SetMember(object obj, string key, IntPtr val)
+        {
+            if (obj == null) return;
+            SetMember(obj, obj.GetType(), key, val);
+        }
+
         private IntPtr ResolveMember(object obj, Type type, string key)
         {
             // 1. Property (readable)
             var prop = GetProperty(type, key);
             if (prop != null && prop.CanRead)
             {
+                ZScriptVM.TraceBinding($"reflection get {type.Name}.{key} (property)");
                 try { return ToZsValue(prop.GetValue(obj), prop.PropertyType); }
                 catch (Exception e) { LogError(key, e); return ZsNative.zs_value_nil(); }
             }
@@ -127,6 +147,7 @@ namespace ZScript
             var field = GetField(type, key);
             if (field != null)
             {
+                ZScriptVM.TraceBinding($"reflection get {type.Name}.{key} (field)");
                 try { return ToZsValue(field.GetValue(obj), field.FieldType); }
                 catch (Exception e) { LogError(key, e); return ZsNative.zs_value_nil(); }
             }
@@ -134,8 +155,12 @@ namespace ZScript
             // 3. Method → return a callable ZsValue
             var method = GetMethod(type, key);
             if (method != null)
+            {
+                ZScriptVM.TraceBinding($"reflection get {type.Name}.{key} (method)");
                 return GetOrMakeMethodCallable(type, key, method);
+            }
 
+            ZScriptVM.TraceBinding($"reflection get {type.Name}.{key} (miss)");
             return ZsNative.zs_value_nil();
         }
 
@@ -144,6 +169,7 @@ namespace ZScript
             var prop = GetProperty(type, key);
             if (prop != null && prop.CanWrite)
             {
+                ZScriptVM.TraceBinding($"reflection set {type.Name}.{key} (property)");
                 try { prop.SetValue(obj, FromZsValue(val, prop.PropertyType)); }
                 catch (Exception e) { LogError(key, e); }
                 return;
@@ -151,9 +177,13 @@ namespace ZScript
             var field = GetField(type, key);
             if (field != null)
             {
+                ZScriptVM.TraceBinding($"reflection set {type.Name}.{key} (field)");
                 try { field.SetValue(obj, FromZsValue(val, field.FieldType)); }
                 catch (Exception e) { LogError(key, e); }
+                return;
             }
+
+            ZScriptVM.TraceBinding($"reflection set {type.Name}.{key} (miss)");
         }
 
         // ── Method callable ───────────────────────────────────────────────────────
@@ -206,7 +236,7 @@ namespace ZScript
         }
 
         // ── Type conversion: C# → ZsValue ────────────────────────────────────────
-        internal IntPtr ToZsValue(object value, Type type)
+        public IntPtr ToZsValue(object value, Type type)
         {
             if (value == null) return ZsNative.zs_value_nil();
 
@@ -234,12 +264,17 @@ namespace ZScript
             // Enum → int
             if (type.IsEnum) return ZsNative.zs_value_int(Convert.ToInt64(value));
 
-            // Unity objects and other reference types → reflection proxy handle
+            // Unity objects and other reference types should get generated binders
+            // when available before falling back to reflection.
+            if (_owner != null)
+                return _owner.WrapSmartRaw(value);
+
+            // Legacy construction path: reflection proxy handle.
             return Wrap(value);
         }
 
         // ── Type conversion: ZsValue → C# ────────────────────────────────────────
-        internal object FromZsValue(IntPtr val, Type targetType)
+        public object FromZsValue(IntPtr val, Type targetType)
         {
             if (val == IntPtr.Zero) return GetDefault(targetType);
             ZsType zt = ZsNative.zs_value_type(val);

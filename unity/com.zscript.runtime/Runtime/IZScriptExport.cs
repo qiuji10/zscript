@@ -40,6 +40,22 @@ namespace ZScript
     }
 
     /// <summary>
+    /// Optional companion interface for generated or hand-written instance wrappers.
+    /// Implementations create typed proxy handles for a specific C# target type.
+    /// </summary>
+    public interface IZScriptInstanceExport
+    {
+        /// <summary>The C# type this exporter can wrap.</summary>
+        Type TargetType { get; }
+
+        /// <summary>
+        /// Create a raw ZScript proxy value for <paramref name="obj"/>.
+        /// The returned pointer must be a heap-allocated ZsValue owned by the caller.
+        /// </summary>
+        IntPtr WrapRaw(ZScriptVM vm, object obj);
+    }
+
+    /// <summary>
     /// Marks a class as produced by the ZScript Export Generator codegen tool.
     /// This attribute is informational — it does not affect runtime behaviour.
     /// Hand-written bindings should NOT use this attribute.

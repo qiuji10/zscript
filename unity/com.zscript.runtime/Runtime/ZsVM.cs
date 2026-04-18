@@ -49,7 +49,7 @@ namespace ZScript
     // Raw P/Invoke layer — matches zscript_c.h function signatures exactly.
     // -----------------------------------------------------------------------
     [Preserve]
-    internal static class ZsNative
+    public static class ZsNative
     {
         private const string Lib = "zscript_unity";
 

@@ -87,18 +87,18 @@ namespace ZScript
 
         /// <summary>
         /// Wrap <paramref name="obj"/> using its registered adapter class if one exists;
-        /// otherwise falls back to a plain <see cref="ZScriptVM.WrapObject"/> proxy.
+        /// otherwise falls back to <see cref="ZScriptVM.WrapSmart"/>.
         ///
         /// The returned <see cref="ZsValueHandle"/> is owned by the caller and must be
         /// disposed (or transferred to a ZScript global / table field).
         /// </summary>
-        public ZsValueHandle Wrap(ZScriptVM vm, object obj)
+        internal IntPtr TryWrapRaw(ZScriptVM vm, object obj)
         {
-            if (obj == null) return ZsValueHandle.Nil();
+            if (obj == null) return IntPtr.Zero;
 
             string typeName = obj.GetType().Name;
             if (!_typeToAdapter.TryGetValue(typeName, out string adapterClass))
-                return vm.WrapObject(obj);
+                return IntPtr.Zero;
 
             // Retrieve the adapter class table from the VM.
             using var classTbl = new ZsValueHandle(ZsNative.zs_vm_get_global(vm.RawVM, adapterClass));
@@ -106,7 +106,7 @@ namespace ZScript
             {
                 Debug.LogWarning($"[ZScript] ZsAdapterRegistry: adapter class '{adapterClass}' " +
                                  $"not found in VM — falling back to plain proxy.");
-                return vm.WrapObject(obj);
+                return IntPtr.Zero;
             }
 
             // Create the raw C# proxy, then call the adapter constructor with it.
@@ -123,9 +123,17 @@ namespace ZScript
                 string msg = Encoding.UTF8.GetString(err).TrimEnd('\0');
                 Debug.LogWarning($"[ZScript] ZsAdapterRegistry: '{adapterClass}()' failed: {msg}. " +
                                  $"Falling back to plain proxy.");
-                return vm.WrapObject(obj);
+                return IntPtr.Zero;
             }
-            return new ZsValueHandle(outRaw);
+            return outRaw;
+        }
+
+        public ZsValueHandle Wrap(ZScriptVM vm, object obj)
+        {
+            if (obj == null) return ZsValueHandle.Nil();
+            IntPtr raw = TryWrapRaw(vm, obj);
+            if (raw != IntPtr.Zero) return new ZsValueHandle(raw);
+            return vm.WrapSmart(obj);
         }
     }
 }

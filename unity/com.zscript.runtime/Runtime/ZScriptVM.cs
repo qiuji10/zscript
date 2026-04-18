@@ -43,11 +43,20 @@ namespace ZScript
         public ZsObjectPool ObjectPool { get; } = new ZsObjectPool();
 
         /// <summary>
+        /// Enable verbose logs showing whether member access used generated bindings
+        /// or reflection fallback.
+        /// </summary>
+        public static bool TraceBindingDispatch { get; set; }
+
+        /// <summary>
         /// Registry of <c>@unity.adapter</c> ZScript classes.
         /// Call <see cref="ZsAdapterRegistry.Refresh"/> after all scripts are loaded,
         /// or let <see cref="Start"/> do it automatically.
         /// </summary>
         public ZsAdapterRegistry AdapterRegistry { get; } = new ZsAdapterRegistry();
+
+        /// <summary>Shared reflection fallback used by generated and dynamic wrappers.</summary>
+        public ZsReflectionProxy ReflectionProxy => ZsUnityBindings.ReflectionProxy;
 
         public bool LoadFile(string path)
         {
@@ -186,8 +195,7 @@ namespace ZScript
         /// <summary>Create a ZScript proxy table for the given C# object.</summary>
         public ZsValueHandle WrapObject(object obj)
         {
-            long id = ObjectPool.Alloc(obj);
-            return new ZsValueHandle(ZsNative.zs_vm_push_object_handle(_vm, id));
+            return new ZsValueHandle(WrapObjectRaw(obj));
         }
 
         /// <summary>
@@ -197,7 +205,7 @@ namespace ZScript
         /// </summary>
         public ZsValueHandle WrapReflected(object obj)
         {
-            var proxy = ZsUnityBindings.ReflectionProxy;
+            var proxy = ReflectionProxy;
             if (proxy == null)
             {
                 Debug.LogError("[ZScript] WrapReflected: ZsUnityBindings not yet registered.");
@@ -207,9 +215,19 @@ namespace ZScript
         }
 
         /// <summary>
+        /// Wrap an object using generated instance bindings when available, then
+        /// adapter classes, then the reflection proxy as a final fallback.
+        /// </summary>
+        public ZsValueHandle WrapSmart(object obj)
+        {
+            if (obj == null) return ZsValueHandle.Nil();
+            return new ZsValueHandle(WrapSmartRaw(obj));
+        }
+
+        /// <summary>
         /// Wrap <paramref name="obj"/> using its <c>@unity.adapter</c> ZScript class
         /// if one is registered in <see cref="AdapterRegistry"/>; otherwise falls back
-        /// to a plain <see cref="WrapObject"/> proxy.
+        /// to the smart wrapper path.
         /// </summary>
         public ZsValueHandle WrapAdapted(object obj) => AdapterRegistry.Wrap(this, obj);
 
@@ -222,6 +240,12 @@ namespace ZScript
 
         public T UnwrapObject<T>(ZsValueHandle val) where T : class
             => UnwrapObject(val) as T;
+
+        public static void TraceBinding(string message)
+        {
+            if (TraceBindingDispatch)
+                Debug.Log("[ZScript.Bind] " + message);
+        }
 
         // ----------------------------------------------------------------
         // Annotation queries
@@ -285,6 +309,7 @@ namespace ZScript
         // ----------------------------------------------------------------
         // Cached once per AppDomain load — avoids re-scanning assemblies on every Awake().
         private static List<Type> s_exportTypes;
+        private readonly List<IZScriptInstanceExport> _instanceExports = new List<IZScriptInstanceExport>();
 
         private static List<Type> GetExportTypes()
         {
@@ -307,7 +332,8 @@ namespace ZScript
                     foreach (var t in asm.GetTypes())
                     {
                         if (t.IsAbstract || t.IsInterface) continue;
-                        if (typeof(IZScriptExport).IsAssignableFrom(t))
+                        if (typeof(IZScriptExport).IsAssignableFrom(t) ||
+                            typeof(IZScriptInstanceExport).IsAssignableFrom(t))
                             s_exportTypes.Add(t);
                     }
                 }
@@ -318,18 +344,70 @@ namespace ZScript
 
         private void RegisterExports()
         {
+            _instanceExports.Clear();
             foreach (var t in GetExportTypes())
             {
                 try
                 {
-                    var exporter = (IZScriptExport)Activator.CreateInstance(t);
-                    exporter.Register(this);
+                    object instance = Activator.CreateInstance(t);
+                    if (instance is IZScriptExport exporter)
+                        exporter.Register(this);
+                    if (instance is IZScriptInstanceExport instanceExporter)
+                        _instanceExports.Add(instanceExporter);
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"[ZScript] IZScriptExport '{t.FullName}' failed to register: {e.Message}");
+                    Debug.LogWarning($"[ZScript] export '{t.FullName}' failed to register: {e.Message}");
                 }
             }
+        }
+
+        internal IntPtr WrapObjectRaw(object obj)
+        {
+            long id = ObjectPool.Alloc(obj);
+            return ZsNative.zs_vm_push_object_handle(_vm, id);
+        }
+
+        internal IntPtr WrapSmartRaw(object obj)
+        {
+            if (obj == null) return ZsNative.zs_value_nil();
+
+            var instanceExport = FindInstanceExport(obj.GetType());
+            if (instanceExport != null)
+            {
+                TraceBinding($"wrap {obj.GetType().Name} -> generated {instanceExport.GetType().Name}");
+                IntPtr raw = instanceExport.WrapRaw(this, obj);
+                if (raw != IntPtr.Zero) return raw;
+            }
+
+            IntPtr adaptedRaw = AdapterRegistry.TryWrapRaw(this, obj);
+            if (adaptedRaw != IntPtr.Zero)
+            {
+                TraceBinding($"wrap {obj.GetType().Name} -> adapter");
+                return adaptedRaw;
+            }
+
+            var proxy = ReflectionProxy;
+            if (proxy == null)
+            {
+                Debug.LogError("[ZScript] WrapSmart: ZsUnityBindings not yet registered.");
+                return ZsNative.zs_value_nil();
+            }
+            TraceBinding($"wrap {obj.GetType().Name} -> reflection");
+            return proxy.Wrap(obj);
+        }
+
+        private IZScriptInstanceExport FindInstanceExport(Type type)
+        {
+            IZScriptInstanceExport assignable = null;
+            foreach (var exporter in _instanceExports)
+            {
+                if (exporter.TargetType == type)
+                    return exporter;
+                if (assignable == null && exporter.TargetType.IsAssignableFrom(type))
+                    assignable = exporter;
+            }
+            return assignable;
         }
 
         // ----------------------------------------------------------------
