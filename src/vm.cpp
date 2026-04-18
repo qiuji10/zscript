@@ -186,7 +186,19 @@ std::vector<Value> VM::invoke_from_native(Value callee, std::vector<Value> args)
         regs_[top + 1 + i] = args[i];
 
     size_t saved_depth = frames_.size();
-    if (!call((uint8_t)top, (uint8_t)args.size(), 1) || !run(saved_depth)) {
+    uint16_t call_reg = top;
+    if (!frames_.empty()) {
+        uint8_t frame_base = frames_.back().base_reg;
+        if (top < frame_base) {
+            throw RuntimeError{"invoke_from_native: invalid register base", ""};
+        }
+        call_reg = (uint16_t)(top - frame_base);
+    }
+    if (call_reg > 255) {
+        throw RuntimeError{"invoke_from_native: register overflow", ""};
+    }
+
+    if (!call((uint8_t)call_reg, (uint8_t)args.size(), 1) || !run(saved_depth)) {
         throw RuntimeError{last_error_.message, last_error_.trace};
     }
     return {regs_[top]};
@@ -842,6 +854,18 @@ void VM::open_stdlib() {
                 out.as_table()->array.push_back(v);
         }
         return {out};
+    });
+    // join(tbl, sep?) — join array elements into a string
+    tfn("join", [](std::vector<Value> a) -> std::vector<Value> {
+        if (a.empty() || !a[0].is_table()) return {Value::from_string("")};
+        std::string sep = a.size() > 1 ? a[1].to_string() : "";
+        auto* t = a[0].as_table();
+        std::string out;
+        for (size_t i = 0; i < t->array.size(); ++i) {
+            if (i) out += sep;
+            out += t->array[i].to_string();
+        }
+        return {Value::from_string(out)};
     });
     // map(tbl, fn) — return new array with fn applied to each element
     tfn("map", [this](std::vector<Value> a) -> std::vector<Value> {
@@ -1682,6 +1706,7 @@ std::vector<VM::DebugFrame> VM::debug_frames() const {
 // Call a global function
 // ===========================================================================
 Value VM::call_global(const std::string& name, std::vector<Value> args) {
+    last_error_ = {};
     Value fn = get_global(name);
     if (fn.is_nil()) {
         runtime_error("undefined global function '" + name + "'");
@@ -1709,10 +1734,14 @@ Value VM::call_global(const std::string& name, std::vector<Value> args) {
             regs_[1 + i] = Value::nil();
 
         try {
-            run();
+            if (!run()) {
+                frames_.clear();
+                return Value::nil();
+            }
             // Return value stored at regs_[0] by Op::Return (this_base-1 = 1-1 = 0)
             return regs_[0];
         } catch (const RuntimeError& e) {
+            frames_.clear();
             last_error_ = e;
             return Value::nil();
         }
@@ -1996,7 +2025,7 @@ void VM::close_upvals_above(uint8_t base) {
     // Snapshot current register values into cells, then remove from open set.
     for (auto it = open_upvals_.begin(); it != open_upvals_.end(); ) {
         if (it->first >= base) {
-            // value already snapshotted at capture/sync time; just remove
+            *it->second = regs_[it->first];
             it = open_upvals_.erase(it);
         } else {
             ++it;
@@ -2444,8 +2473,18 @@ bool VM::run(size_t stop_depth) {
                 case Op::SetUpval: {
                     // A=src, B=upvalue index
                     ZClosure* cl = frames_.back().closure;
-                    if (cl && B < cl->upvalues.size())
-                        *cl->upvalues[B] = R(A);
+                    if (cl && B < cl->upvalues.size()) {
+                        auto cell = cl->upvalues[B];
+                        Value value = R(A);
+                        *cell = value;
+
+                        // Keep the owning live stack register coherent while
+                        // the captured frame is still active.
+                        for (auto& [abs_reg, open_cell] : open_upvals_) {
+                            if (open_cell == cell)
+                                regs_[abs_reg] = value;
+                        }
+                    }
                     break;
                 }
 
@@ -2801,6 +2840,7 @@ bool VM::run(size_t stop_depth) {
 
         } catch (const RuntimeError& e) {
             if (!try_stack_.empty()) {
+                last_error_ = {};
                 auto tf = try_stack_.back();
                 try_stack_.pop_back();
                 // Unwind call stack back to the frame that installed the handler
@@ -2819,6 +2859,7 @@ bool VM::run(size_t stop_depth) {
             }
         }
     } // end outer while
+    last_error_ = {};
     return true;
 }
 

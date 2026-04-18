@@ -21,6 +21,10 @@ using System;
 using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
+#endif
 
 namespace ZScript
 {
@@ -279,37 +283,395 @@ namespace ZScript
                     catch { return KeyCode.None; }
                 }
 
+                bool tryLegacyBool(Func<bool> reader, out bool value) {
+                    try {
+                        value = reader();
+                        return true;
+                    } catch (InvalidOperationException) {
+                        value = false;
+                        return false;
+                    }
+                }
+
+                bool tryLegacyFloat(Func<float> reader, out float value) {
+                    try {
+                        value = reader();
+                        return true;
+                    } catch (InvalidOperationException) {
+                        value = 0f;
+                        return false;
+                    }
+                }
+
+                bool tryLegacyVector2(Func<Vector2> reader, out Vector2 value) {
+                    try {
+                        value = reader();
+                        return true;
+                    } catch (InvalidOperationException) {
+                        value = Vector2.zero;
+                        return false;
+                    }
+                }
+
+                bool tryLegacyVector3(Func<Vector3> reader, out Vector3 value) {
+                    try {
+                        value = reader();
+                        return true;
+                    } catch (InvalidOperationException) {
+                        value = Vector3.zero;
+                        return false;
+                    }
+                }
+
+                bool tryLegacyInt(Func<int> reader, out int value) {
+                    try {
+                        value = reader();
+                        return true;
+                    } catch (InvalidOperationException) {
+                        value = 0;
+                        return false;
+                    }
+                }
+
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                bool tryParseInputSystemKey(string keyName, out Key key) {
+                    if (Enum.TryParse(keyName, true, out key)) return true;
+
+                    string normalized = (keyName ?? string.Empty).Trim()
+                        .Replace(" ", string.Empty)
+                        .Replace("_", string.Empty)
+                        .ToLowerInvariant();
+
+                    if (normalized.Length == 1 && char.IsLetter(normalized[0]))
+                        return Enum.TryParse(char.ToUpperInvariant(normalized[0]).ToString(), out key);
+                    if (normalized.Length == 1 && char.IsDigit(normalized[0]))
+                        return Enum.TryParse($"Digit{normalized}", out key);
+
+                    switch (normalized)
+                    {
+                        case "return":
+                        case "enter":
+                            key = Key.Enter;
+                            return true;
+                        case "esc":
+                        case "escape":
+                            key = Key.Escape;
+                            return true;
+                        case "space":
+                        case "spacebar":
+                            key = Key.Space;
+                            return true;
+                        case "left":
+                        case "leftarrow":
+                            key = Key.LeftArrow;
+                            return true;
+                        case "right":
+                        case "rightarrow":
+                            key = Key.RightArrow;
+                            return true;
+                        case "up":
+                        case "uparrow":
+                            key = Key.UpArrow;
+                            return true;
+                        case "down":
+                        case "downarrow":
+                            key = Key.DownArrow;
+                            return true;
+                        case "lshift":
+                        case "leftshift":
+                            key = Key.LeftShift;
+                            return true;
+                        case "rshift":
+                        case "rightshift":
+                            key = Key.RightShift;
+                            return true;
+                        case "lctrl":
+                        case "leftctrl":
+                        case "leftcontrol":
+                            key = Key.LeftCtrl;
+                            return true;
+                        case "rctrl":
+                        case "rightctrl":
+                        case "rightcontrol":
+                            key = Key.RightCtrl;
+                            return true;
+                        case "lalt":
+                        case "leftalt":
+                            key = Key.LeftAlt;
+                            return true;
+                        case "ralt":
+                        case "rightalt":
+                            key = Key.RightAlt;
+                            return true;
+                        case "tab":
+                            key = Key.Tab;
+                            return true;
+                        case "backspace":
+                            key = Key.Backspace;
+                            return true;
+                        default:
+                            key = Key.None;
+                            return false;
+                    }
+                }
+
+                bool readInputSystemKey(string keyName, Func<KeyControl, bool> reader) {
+                    Keyboard keyboard = Keyboard.current;
+                    if (keyboard == null || !tryParseInputSystemKey(keyName, out Key key))
+                        return false;
+                    KeyControl control = keyboard[key];
+                    return control != null && reader(control);
+                }
+
+                ButtonControl mouseButton(int button) {
+                    Mouse mouse = Mouse.current;
+                    if (mouse == null) return null;
+                    return button switch {
+                        0 => mouse.leftButton,
+                        1 => mouse.rightButton,
+                        2 => mouse.middleButton,
+                        3 => mouse.forwardButton,
+                        4 => mouse.backButton,
+                        _ => null
+                    };
+                }
+
+                bool readInputSystemMouseButton(int button, Func<ButtonControl, bool> reader) {
+                    ButtonControl control = mouseButton(button);
+                    return control != null && reader(control);
+                }
+
+                float buttonValue(ButtonControl control) =>
+                    control != null && control.isPressed ? 1f : 0f;
+
+                float readInputSystemAxis(string axisName) {
+                    string axis = (axisName ?? string.Empty).Trim();
+                    Keyboard keyboard = Keyboard.current;
+                    Mouse mouse = Mouse.current;
+                    Vector2 mouseDelta = mouse != null ? mouse.delta.ReadValue() : Vector2.zero;
+                    Vector2 mouseScroll = mouse != null ? mouse.scroll.ReadValue() : Vector2.zero;
+                    return axis switch {
+                        "Horizontal" => buttonValue(keyboard?.dKey) + buttonValue(keyboard?.rightArrowKey)
+                                      - buttonValue(keyboard?.aKey) - buttonValue(keyboard?.leftArrowKey),
+                        "Vertical"   => buttonValue(keyboard?.wKey) + buttonValue(keyboard?.upArrowKey)
+                                      - buttonValue(keyboard?.sKey) - buttonValue(keyboard?.downArrowKey),
+                        "Mouse X"    => mouseDelta.x,
+                        "Mouse Y"    => mouseDelta.y,
+                        "Mouse ScrollWheel" => mouseScroll.y,
+                        _ => 0f
+                    };
+                }
+
+                bool readInputSystemButton(string buttonName, Func<ButtonControl, bool> reader) {
+                    string name = (buttonName ?? string.Empty).Trim();
+                    switch (name)
+                    {
+                        case "Jump":
+                            return readInputSystemKey("Space", kc => reader(kc));
+                        case "Submit":
+                            return readInputSystemKey("Enter", kc => reader(kc));
+                        case "Cancel":
+                            return readInputSystemKey("Escape", kc => reader(kc));
+                        case "Fire1":
+                            return readInputSystemMouseButton(0, bc => reader(bc));
+                        case "Fire2":
+                            return readInputSystemMouseButton(1, bc => reader(bc));
+                        case "Fire3":
+                            return readInputSystemMouseButton(2, bc => reader(bc));
+                        default:
+                            return false;
+                    }
+                }
+
+                bool inputSystemAnyKey(Func<ButtonControl, bool> controlReader) {
+                    Keyboard keyboard = Keyboard.current;
+                    if (keyboard?.anyKey != null && controlReader(keyboard.anyKey))
+                        return true;
+
+                    for (int button = 0; button <= 4; button++) {
+                        if (readInputSystemMouseButton(button, controlReader))
+                            return true;
+                    }
+                    return false;
+                }
+
+                int inputSystemTouchCount() {
+                    Touchscreen touchscreen = Touchscreen.current;
+                    if (touchscreen == null) return 0;
+                    int count = 0;
+                    foreach (TouchControl touch in touchscreen.touches) {
+                        if (touch.press.isPressed) count++;
+                    }
+                    return count;
+                }
+#endif
+
+                bool readKey(string keyName) {
+                    KeyCode key = parseKey(keyName);
+                    if (tryLegacyBool(() => Input.GetKey(key), out bool legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemKey(keyName, kc => kc.isPressed);
+#else
+                    return false;
+#endif
+                }
+
+                bool readKeyDown(string keyName) {
+                    KeyCode key = parseKey(keyName);
+                    if (tryLegacyBool(() => Input.GetKeyDown(key), out bool legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemKey(keyName, kc => kc.wasPressedThisFrame);
+#else
+                    return false;
+#endif
+                }
+
+                bool readKeyUp(string keyName) {
+                    KeyCode key = parseKey(keyName);
+                    if (tryLegacyBool(() => Input.GetKeyUp(key), out bool legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemKey(keyName, kc => kc.wasReleasedThisFrame);
+#else
+                    return false;
+#endif
+                }
+
+                float readAxis(string axisName, bool raw) {
+                    if (tryLegacyFloat(() => raw ? Input.GetAxisRaw(axisName) : Input.GetAxis(axisName), out float legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemAxis(axisName);
+#else
+                    return 0f;
+#endif
+                }
+
+                bool readButton(string buttonName) {
+                    if (tryLegacyBool(() => Input.GetButton(buttonName), out bool legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemButton(buttonName, bc => bc.isPressed);
+#else
+                    return false;
+#endif
+                }
+
+                bool readButtonDown(string buttonName) {
+                    if (tryLegacyBool(() => Input.GetButtonDown(buttonName), out bool legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemButton(buttonName, bc => bc.wasPressedThisFrame);
+#else
+                    return false;
+#endif
+                }
+
+                bool readButtonUp(string buttonName) {
+                    if (tryLegacyBool(() => Input.GetButtonUp(buttonName), out bool legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemButton(buttonName, bc => bc.wasReleasedThisFrame);
+#else
+                    return false;
+#endif
+                }
+
+                bool readMouseButton(int button) {
+                    if (tryLegacyBool(() => Input.GetMouseButton(button), out bool legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemMouseButton(button, bc => bc.isPressed);
+#else
+                    return false;
+#endif
+                }
+
+                bool readMouseButtonDown(int button) {
+                    if (tryLegacyBool(() => Input.GetMouseButtonDown(button), out bool legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemMouseButton(button, bc => bc.wasPressedThisFrame);
+#else
+                    return false;
+#endif
+                }
+
+                bool readMouseButtonUp(int button) {
+                    if (tryLegacyBool(() => Input.GetMouseButtonUp(button), out bool legacyValue))
+                        return legacyValue;
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    return readInputSystemMouseButton(button, bc => bc.wasReleasedThisFrame);
+#else
+                    return false;
+#endif
+                }
+
                 ZsNative.zs_table_set_fn(t, "GetKey", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_bool(argc > 0 && Input.GetKey(parseKey(zsStr(argv[0]))) ? 1 : 0)), rawVm);
+                    ZsNative.zs_value_bool(argc > 0 && readKey(zsStr(argv[0])) ? 1 : 0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetKeyDown", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_bool(argc > 0 && Input.GetKeyDown(parseKey(zsStr(argv[0]))) ? 1 : 0)), rawVm);
+                    ZsNative.zs_value_bool(argc > 0 && readKeyDown(zsStr(argv[0])) ? 1 : 0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetKeyUp", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_bool(argc > 0 && Input.GetKeyUp(parseKey(zsStr(argv[0]))) ? 1 : 0)), rawVm);
+                    ZsNative.zs_value_bool(argc > 0 && readKeyUp(zsStr(argv[0])) ? 1 : 0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetAxis", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_float(argc > 0 ? Input.GetAxis(zsStr(argv[0])) : 0.0)), rawVm);
+                    ZsNative.zs_value_float(argc > 0 ? readAxis(zsStr(argv[0]), false) : 0.0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetAxisRaw", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_float(argc > 0 ? Input.GetAxisRaw(zsStr(argv[0])) : 0.0)), rawVm);
+                    ZsNative.zs_value_float(argc > 0 ? readAxis(zsStr(argv[0]), true) : 0.0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetButton", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_bool(argc > 0 && Input.GetButton(zsStr(argv[0])) ? 1 : 0)), rawVm);
+                    ZsNative.zs_value_bool(argc > 0 && readButton(zsStr(argv[0])) ? 1 : 0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetButtonDown", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_bool(argc > 0 && Input.GetButtonDown(zsStr(argv[0])) ? 1 : 0)), rawVm);
+                    ZsNative.zs_value_bool(argc > 0 && readButtonDown(zsStr(argv[0])) ? 1 : 0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetButtonUp", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_bool(argc > 0 && Input.GetButtonUp(zsStr(argv[0])) ? 1 : 0)), rawVm);
+                    ZsNative.zs_value_bool(argc > 0 && readButtonUp(zsStr(argv[0])) ? 1 : 0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetMouseButton", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_bool(argc > 0 && Input.GetMouseButton((int)ZsNative.zs_value_as_int(argv[0])) ? 1 : 0)), rawVm);
+                    ZsNative.zs_value_bool(argc > 0 && readMouseButton((int)ZsNative.zs_value_as_int(argv[0])) ? 1 : 0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetMouseButtonDown", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_bool(argc > 0 && Input.GetMouseButtonDown((int)ZsNative.zs_value_as_int(argv[0])) ? 1 : 0)), rawVm);
+                    ZsNative.zs_value_bool(argc > 0 && readMouseButtonDown((int)ZsNative.zs_value_as_int(argv[0])) ? 1 : 0)), rawVm);
                 ZsNative.zs_table_set_fn(t, "GetMouseButtonUp", pin((vm2, argc, argv) =>
-                    ZsNative.zs_value_bool(argc > 0 && Input.GetMouseButtonUp((int)ZsNative.zs_value_as_int(argv[0])) ? 1 : 0)), rawVm);
+                    ZsNative.zs_value_bool(argc > 0 && readMouseButtonUp((int)ZsNative.zs_value_as_int(argv[0])) ? 1 : 0)), rawVm);
 
                 ZsNative.zs_table_set_fn(t, "__index", pin((vm2, argc, argv) => {
                     if (argc < 2) return ZsNative.zs_value_nil();
+                    Vector3 mousePosition = Vector3.zero;
+                    Vector2 mouseScrollDelta = Vector2.zero;
+                    int touchCount = 0;
+                    bool anyKey = false;
+                    bool anyKeyDown = false;
+
+                    bool hasMousePosition = tryLegacyVector3(() => Input.mousePosition, out mousePosition);
+                    bool hasMouseScroll = tryLegacyVector2(() => Input.mouseScrollDelta, out mouseScrollDelta);
+                    bool hasAnyKey = tryLegacyBool(() => Input.anyKey, out anyKey);
+                    bool hasAnyKeyDown = tryLegacyBool(() => Input.anyKeyDown, out anyKeyDown);
+                    bool hasTouchCount = tryLegacyInt(() => Input.touchCount, out touchCount);
+
+#if ZSCRIPT_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
+                    if (!hasMousePosition)
+                    {
+                        Mouse mouse = Mouse.current;
+                        Vector2 pos = mouse != null ? mouse.position.ReadValue() : Vector2.zero;
+                        mousePosition = new Vector3(pos.x, pos.y, 0f);
+                    }
+                    if (!hasMouseScroll)
+                    {
+                        Mouse mouse = Mouse.current;
+                        mouseScrollDelta = mouse != null ? mouse.scroll.ReadValue() : Vector2.zero;
+                    }
+                    if (!hasAnyKey)
+                        anyKey = inputSystemAnyKey(bc => bc.isPressed);
+                    if (!hasAnyKeyDown)
+                        anyKeyDown = inputSystemAnyKey(bc => bc.wasPressedThisFrame);
+                    if (!hasTouchCount)
+                        touchCount = inputSystemTouchCount();
+#endif
+
                     return zsStr(argv[1]) switch {
-                        "mousePosition"    => ZsMarshal.Vector3(Input.mousePosition),
-                        "mouseScrollDelta" => ZsMarshal.Vector2(Input.mouseScrollDelta),
-                        "anyKey"           => ZsNative.zs_value_bool(Input.anyKey    ? 1 : 0),
-                        "anyKeyDown"       => ZsNative.zs_value_bool(Input.anyKeyDown? 1 : 0),
-                        "touchCount"       => ZsNative.zs_value_int(Input.touchCount),
+                        "mousePosition"    => ZsMarshal.Vector3(mousePosition),
+                        "mouseScrollDelta" => ZsMarshal.Vector2(mouseScrollDelta),
+                        "anyKey"           => ZsNative.zs_value_bool(anyKey ? 1 : 0),
+                        "anyKeyDown"       => ZsNative.zs_value_bool(anyKeyDown ? 1 : 0),
+                        "touchCount"       => ZsNative.zs_value_int(touchCount),
                         _ => ZsNative.zs_value_nil()
                     };
                 }), rawVm);

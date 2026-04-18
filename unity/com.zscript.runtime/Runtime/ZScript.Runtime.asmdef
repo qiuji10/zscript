@@ -1,7 +1,9 @@
 {
     "name": "ZScript.Runtime",
     "rootNamespace": "ZScript",
-    "references": [],
+    "references": [
+        "Unity.InputSystem"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
@@ -14,6 +16,11 @@
             "name": "com.unity.ugui",
             "expression": "1.0.0",
             "define": "ZSCRIPT_UGUI"
+        },
+        {
+            "name": "com.unity.inputsystem",
+            "expression": "1.0.0",
+            "define": "ZSCRIPT_INPUT_SYSTEM"
         }
     ],
     "noEngineReferences": false

@@ -7,5 +7,7 @@
   "author": {
     "name": "qiuji10"
   },
-  "dependencies": {}
+  "dependencies": {
+    "com.unity.inputsystem": "1.0.0"
+  }
 }

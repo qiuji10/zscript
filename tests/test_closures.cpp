@@ -76,6 +76,22 @@ TEST_CASE("multiple closures share the same upvalue", "[closures]") {
     CHECK(c.g("val").as_int() == 3);
 }
 
+TEST_CASE("upvalue writes are visible to active enclosing frame", "[closures]") {
+    Ctx c;
+    REQUIRE(c.run(R"(
+        fn run_handlers() {
+            var fired = 0
+            let h1 = fn() { fired = fired + 1 }
+            let h2 = fn() { fired = fired + 10 }
+            let handlers = [h1, h2]
+            for let h in handlers { h() }
+            return fired
+        }
+        let result = run_handlers()
+    )"));
+    CHECK(c.g("result").as_int() == 11);
+}
+
 TEST_CASE("lambda expression assigned to variable", "[closures]") {
     Ctx c;
     REQUIRE(c.run(R"(

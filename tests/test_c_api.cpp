@@ -122,6 +122,137 @@ TEST_CASE("zs_vm_call invokes a global function", "[c_api][call]") {
     zs_vm_free(vm);
 }
 
+TEST_CASE("zs_vm_call supports stdlib callbacks inside called function", "[c_api][call]") {
+    ZsVM vm = make_vm();
+    char err[256] = {};
+    REQUIRE(zs_vm_load_source(
+        vm,
+        "<t>",
+        "fn run_language_tests() {"
+        "  let nums = [1, 2, 3]"
+        "  let doubled = nums.map(fn(x) { return x * 2 })"
+        "  return doubled[1]"
+        "}",
+        err,
+        sizeof(err)));
+
+    ZsValue result = nullptr;
+    int ok = zs_vm_call(vm, "run_language_tests", 0, nullptr, &result, err, sizeof(err));
+    CHECK(ok == 1);
+    REQUIRE(result != nullptr);
+    CHECK(zs_value_type(result) == ZS_TYPE_INT);
+    CHECK(zs_value_as_int(result) == 4);
+
+    zs_value_free(result);
+    zs_vm_free(vm);
+}
+
+TEST_CASE("zs_vm_call supports split result table join method", "[c_api][call]") {
+    ZsVM vm = make_vm();
+    char err[256] = {};
+    REQUIRE(zs_vm_load_source(
+        vm,
+        "<t>",
+        "fn run() {"
+        "  let parts = \"a,b,c\".split(\",\")"
+        "  return parts.join(\"-\")"
+        "}",
+        err,
+        sizeof(err)));
+
+    ZsValue result = nullptr;
+    int ok = zs_vm_call(vm, "run", 0, nullptr, &result, err, sizeof(err));
+    CHECK(ok == 1);
+    REQUIRE(result != nullptr);
+    CHECK(zs_value_type(result) == ZS_TYPE_STRING);
+
+    char buf[64] = {};
+    int len = zs_value_as_string(result, buf, sizeof(buf));
+    CHECK(len == 5);
+    CHECK(std::string(buf) == "a-b-c");
+
+    zs_value_free(result);
+    zs_vm_free(vm);
+}
+
+TEST_CASE("zs_vm_call supports closures stored in arrays", "[c_api][call]") {
+    ZsVM vm = make_vm();
+    char err[256] = {};
+    REQUIRE(zs_vm_load_source(
+        vm,
+        "<t>",
+        "fn run() {"
+        "  var fired = 0"
+        "  let h1 = fn() { fired = fired + 1 }"
+        "  let h2 = fn() { fired = fired + 10 }"
+        "  let handlers = [h1, h2]"
+        "  for let h in handlers { h() }"
+        "  return fired"
+        "}",
+        err,
+        sizeof(err)));
+
+    ZsValue result = nullptr;
+    int ok = zs_vm_call(vm, "run", 0, nullptr, &result, err, sizeof(err));
+    CHECK(ok == 1);
+    REQUIRE(result != nullptr);
+    CHECK(zs_value_type(result) == ZS_TYPE_INT);
+    CHECK(zs_value_as_int(result) == 11);
+
+    zs_value_free(result);
+    zs_vm_free(vm);
+}
+
+TEST_CASE("zs_vm_call clears handled script errors", "[c_api][call]") {
+    ZsVM vm = make_vm();
+    char err[256] = {};
+    REQUIRE(zs_vm_load_source(
+        vm,
+        "<t>",
+        "fn run() {"
+        "  try { throw \"test error\" } catch e { }"
+        "  return 7"
+        "}",
+        err,
+        sizeof(err)));
+
+    ZsValue result = nullptr;
+    int ok = zs_vm_call(vm, "run", 0, nullptr, &result, err, sizeof(err));
+    CHECK(ok == 1);
+    CHECK(err[0] == '\0');
+    REQUIRE(result != nullptr);
+    CHECK(zs_value_type(result) == ZS_TYPE_INT);
+    CHECK(zs_value_as_int(result) == 7);
+
+    zs_value_free(result);
+    zs_vm_free(vm);
+}
+
+TEST_CASE("zs_vm_call recovers after a failed global call", "[c_api][call]") {
+    ZsVM vm = make_vm();
+    char err[256] = {};
+    REQUIRE(zs_vm_load_source(
+        vm,
+        "<t>",
+        "fn fail() { nil() }"
+        "fn ok() { return 42 }",
+        err,
+        sizeof(err)));
+
+    CHECK(zs_vm_call(vm, "fail", 0, nullptr, nullptr, err, sizeof(err)) == 0);
+    CHECK(err[0] != '\0');
+
+    err[0] = '\0';
+    ZsValue result = nullptr;
+    CHECK(zs_vm_call(vm, "ok", 0, nullptr, &result, err, sizeof(err)) == 1);
+    REQUIRE(result != nullptr);
+    CHECK(zs_value_as_int(result) == 42);
+    CHECK(err[0] == '\0');
+
+    zs_value_free(result);
+    zs_vm_free(vm);
+}
+
 TEST_CASE("zs_value_invoke can instantiate a class value", "[c_api][call]") {
     ZsVM vm = make_vm();
     char err[256] = {};
@@ -149,6 +280,41 @@ TEST_CASE("zs_value_invoke can instantiate a class value", "[c_api][call]") {
     CHECK(std::string(buf) == "hello from zscript");
 
     zs_value_free(message);
+    zs_value_free(instance);
+    zs_value_free(cls);
+    zs_vm_free(vm);
+}
+
+TEST_CASE("zs_vm_invoke_method calls instance methods", "[c_api][call]") {
+    ZsVM vm = make_vm();
+    char err[256] = {};
+    REQUIRE(zs_vm_load_source(
+        vm,
+        "<t>",
+        "class LifecycleTest {"
+        "  var count = 0"
+        "  fn Start() { self.count = self.count + 1 }"
+        "}",
+        err,
+        sizeof(err)));
+
+    ZsValue cls = zs_vm_get_global(vm, "LifecycleTest");
+    REQUIRE(cls != nullptr);
+
+    ZsValue instance = nullptr;
+    REQUIRE(zs_value_invoke(vm, cls, 0, nullptr, &instance, err, sizeof(err)) == 1);
+    REQUIRE(instance != nullptr);
+
+    ZsValue result = nullptr;
+    CHECK(zs_vm_invoke_method(vm, instance, "Start", 0, nullptr, &result, err, sizeof(err)) == 1);
+    if (result) zs_value_free(result);
+
+    ZsValue count = zs_vm_handle_get_field(vm, instance, "count");
+    REQUIRE(count != nullptr);
+    CHECK(zs_value_type(count) == ZS_TYPE_INT);
+    CHECK(zs_value_as_int(count) == 1);
+
+    zs_value_free(count);
     zs_value_free(instance);
     zs_value_free(cls);
     zs_vm_free(vm);
