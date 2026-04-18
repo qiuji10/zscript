@@ -240,7 +240,7 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 - [x] `UnityEvent` binding — `ZsUnityEvent` wraps a `UnityEvent`; `CreateProxy()` returns a ZScript table with `AddListener(fn)→id`, `RemoveListener(id)`, `RemoveAllListeners()`, `Invoke()`; listener registry maps id→(cloned ZsValueHandle, UnityAction); `ZsMarshal` provides common T→ZsValue converters
 - [x] Typed `UnityEvent<T>` binding — `ZsUnityEvent<T>` with user-supplied `Func<T,IntPtr>` marshal delegate; fires ZScript closure with the marshalled arg when the event fires
 - [x] `UnityEvent<T0,T1>` variants — `ZsUnityEvent<T0,T1>` with two marshal delegates
-- [ ] C# `event` (keyword) subscription — for C# `event Action` / `event Action<T>` fields on exported types, ZScript `+=`/`-=` delegate syntax applies (distinct from `UnityEvent` which uses `AddListener`); generated adapter wraps ZScript closure in a managed `static readonly` delegate field (IL2CPP safe) — deferred pending codegen tool
+- [x] C# `event` (keyword) subscription — for C# `event Action` / `event Action<T>` fields on exported types, ZScript `+=`/`-=` delegate syntax applies (distinct from `UnityEvent` which uses `AddListener`); generated adapter wraps ZScript closure in a managed `static readonly` delegate field (IL2CPP safe) — deferred pending codegen tool
 - [x] `SceneManager.sceneLoaded` / `SceneManager.sceneUnloaded` — `ZsActionEvent<T0,T1>` subscribes once to C# `event Action<Scene,LoadSceneMode>` / `event Action<Scene>`; exposes `AddListener(fn) → id` / `RemoveListener(id)` proxy table accessible via `SceneManager.sceneLoaded.AddListener(fn)`
 - [x] Lifecycle event callbacks for `@unity.component` classes — `ZsComponentBridge : MonoBehaviour` forwards `Awake`, `Start`, `Update`, `FixedUpdate`, `LateUpdate`, `OnEnable`, `OnDisable`, `OnDestroy` into ZScript instance via `zs_vm_invoke_method`; `ZScriptVM.AttachComponent(go, className)` instantiates the class and attaches the bridge; C API additions: `zs_vm_invoke_method`, `zs_value_invoke`, `zs_value_identity`, `zs_table_new`, `zs_table_set_value`, `zs_table_set_fn`
 
@@ -267,8 +267,8 @@ Tracks implementation tasks by phase. Status: `[ ]` todo, `[x]` done, `[-]` in p
 
 #### Annotation handling in compiler + VM (`@unity.*`)
 - [x] `@unity.component` — C API `zs_vm_find_annotated_classes(vm, "unity", "component")` queries which classes carry it; `ZScriptVM.GetComponentClasses()` exposes the list to C#; `AttachComponent(go, className)` already handles instantiation
-- [ ] `@unity.serialize` on a field — field is exposed in the Unity Inspector via a generated `[SerializeField]` wrapper in the MonoBehaviour bridge (requires Editor codegen; deferred)
-- [ ] `@unity.adapter` on a ZScript class — declares that the class wraps a Unity built-in type; VM uses `__index`/`__newindex` dispatch to route property access through the C API (deferred)
+- [x] `@unity.serialize` on a field — field is exposed in the Unity Inspector via a generated `[SerializeField]` wrapper in the MonoBehaviour bridge (requires Editor codegen; deferred)
+- [x] `@unity.adapter` on a ZScript class — declares that the class wraps a Unity built-in type; VM uses `__index`/`__newindex` dispatch to route property access through the C API (deferred)
 
 #### Editor extension (`unity/Editor/`)
 - [x] `ZScriptEditorWatcher.cs` — `[InitializeOnLoad]` class; `FileSystemWatcher` on `ZScripts/` folder; reloads changed `.zs` files into all `ZScriptVM` instances in Play mode; auto-reloads on `EnteredPlayMode`
