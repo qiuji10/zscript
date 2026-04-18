@@ -35,7 +35,10 @@ namespace ZScript
     // ZsNativeFn: called when ZScript invokes a registered C# function.
     [Preserve]
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate IntPtr ZsNativeFn(IntPtr vm, int argc, IntPtr[] argv);
+    public delegate IntPtr ZsNativeFn(
+        IntPtr vm,
+        int argc,
+        [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 1)] IntPtr[] argv);
 
     // ZsHandleReleaseFn: called when a proxy table is GC'd.
     [Preserve]
@@ -229,6 +232,12 @@ namespace ZScript
         public static extern int zs_vm_find_annotated_classes(
             IntPtr vm, string ns, string name,
             [Out] byte[] buf, int bufLen);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int zs_vm_get_top_frame(
+            IntPtr vm,
+            [Out] byte[] sourceBuf, int sourceBufLen,
+            out int line);
 
         // Coroutine API
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]

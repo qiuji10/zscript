@@ -343,8 +343,9 @@ double zs_value_as_float(ZsValue val) {
 }
 
 int zs_value_as_string(ZsValue val, char* buf, int len) {
-    if (!val || !buf || len <= 0) return 0;
+    if (!val) return 0;
     std::string s = as_box(val)->v.to_string();
+    if (!buf || len <= 0) return (int)s.size();
     int copy_len = (int)s.size() < len - 1 ? (int)s.size() : len - 1;
     std::memcpy(buf, s.c_str(), (size_t)copy_len);
     buf[copy_len] = '\0';
@@ -394,10 +395,6 @@ int zs_value_invoke(ZsVM vm_handle, ZsValue fn,
     using namespace zscript;
     VM* vm = as_vm(vm_handle);
     Value& fn_val = as_box(fn)->v;
-    if (!fn_val.is_closure() && !fn_val.is_native()) {
-        write_err("zs_value_invoke: value is not callable", err_buf, err_len);
-        return 0;
-    }
     std::vector<Value> args;
     args.reserve((size_t)argc);
     for (int i = 0; i < argc; ++i)
@@ -626,4 +623,21 @@ int zs_vm_find_annotated_classes(ZsVM vm_handle, const char* ns, const char* nam
     }
     if (buf && buf_len > 0 && written < buf_len) buf[written] = '\0';
     return count;
+}
+
+int zs_vm_get_top_frame(ZsVM vm_handle,
+                        char* source_buf, int source_buf_len,
+                        int* out_line)
+{
+    using namespace zscript;
+    if (!vm_handle) return 0;
+
+    VM* vm = as_vm(vm_handle);
+    auto frames = vm->debug_frames();
+    if (frames.empty()) return 0;
+
+    const auto& frame = frames.back();
+    if (out_line) *out_line = frame.line;
+    write_err(frame.source, source_buf, source_buf_len);
+    return 1;
 }

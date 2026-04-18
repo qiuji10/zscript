@@ -46,7 +46,7 @@ namespace ZScript.Editor
             if (sf != null)
             {
                 EditorGUILayout.HelpBox(
-                    "ZsSerializedFields is attached — fields will be injected before start() runs.",
+                    "ZsSerializedFields is attached — fields will be injected before Start() runs.",
                     MessageType.None);
                 if (GUILayout.Button("Select ZsSerializedFields"))
                     Selection.activeObject = sf;

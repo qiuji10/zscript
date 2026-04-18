@@ -81,8 +81,8 @@ Marks a ZScript class as a Unity component. `ZScriptVM.GetComponentClasses()` re
 ```ts
 @unity.component
 class PlayerController {
-    fn start() { }
-    fn update() { }
+    fn Start() { }
+    fn Update() { }
 }
 ```
 
@@ -104,13 +104,14 @@ class Enemy {
     var speed = 3.5
     var name  = "goblin"
 
-    fn start() {
-        // hp, speed, name are already set from the Inspector before this runs
+    fn Start() {
+        // Fields are instance state, so read them through self.
+        Debug.Log("hp=" + self.hp + ", speed=" + self.speed + ", name=" + self.name)
     }
 }
 ```
 
-In the Inspector, add a `ZsSerializedFields` component to the same GameObject. Add field entries whose names match the ZScript field names exactly. `ZsComponentBridge` injects those values before `start()` is called.
+In the Inspector, add a `ZsSerializedFields` component to the same GameObject. Add field entries whose names match the ZScript field names exactly. `ZsComponentBridge` injects those values before `Start()` is called.
 
 Supported field types: `Bool`, `Int`, `Float`, `String`.
 

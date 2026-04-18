@@ -66,9 +66,9 @@ Marks a ZScript class as a Unity component. The Unity runtime discovers classes 
 ```ts
 @unity.component
 class PlayerController {
-    fn start()  { }
-    fn update()  { }
-    fn onDestroy() { }
+    fn Start()     { }
+    fn Update()    { }
+    fn OnDestroy() { }
 }
 ```
 
@@ -82,7 +82,7 @@ string[] classes = vm.FindAnnotatedClasses("unity", "component");
 
 ### @unity.serialize
 
-Marks a ZScript class as having Unity inspector-editable fields. A `ZsSerializedFields` MonoBehaviour component stores the inspector values; `ZsComponentBridge` injects them into the ZScript instance before `start()` is called.
+Marks a ZScript class as having Unity inspector-editable fields. A `ZsSerializedFields` MonoBehaviour component stores the inspector values; `ZsComponentBridge` injects them into the ZScript instance before `Start()` is called.
 
 Field names in the Inspector must match ZScript field names exactly (case-sensitive).
 
@@ -94,9 +94,10 @@ class Enemy {
     var speed = 3.5
     var label = "enemy"
 
-    fn start() {
+    fn Start() {
+        // Instance fields should be read through self.
         // hp, speed, and label are already set from the Inspector by the time
-        // start() runs — safe to read them here
+        // Start() runs.
         Debug.Log("hp=" + self.hp)
     }
 }

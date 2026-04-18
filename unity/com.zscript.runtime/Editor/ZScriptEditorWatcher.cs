@@ -99,7 +99,7 @@ namespace ZScript.Editor
             try { source = File.ReadAllText(fullPath); }
             catch { return; }
 
-            string name = Path.GetFileNameWithoutExtension(fullPath);
+            string name = ToProjectRelativePath(fullPath);
             foreach (var vm in vms)
             {
                 if (vm.enableHotpatch)
@@ -122,10 +122,18 @@ namespace ZScript.Editor
                 try { source = File.ReadAllText(path); }
                 catch { continue; }
 
-                string name = Path.GetFileNameWithoutExtension(path);
+                string name = ToProjectRelativePath(path);
                 foreach (var vm in vms)
                     vm.LoadSource(name, source);
             }
+        }
+
+        private static string ToProjectRelativePath(string fullPath)
+        {
+            string dataPath = Application.dataPath;
+            if (fullPath.StartsWith(dataPath, System.StringComparison.Ordinal))
+                return "Assets" + fullPath.Substring(dataPath.Length).Replace('\\', '/');
+            return fullPath.Replace('\\', '/');
         }
 
         // ----------------------------------------------------------------

@@ -46,6 +46,23 @@ namespace ZScript
                 return Encoding.UTF8.GetString(buf, 0, len);
             }
 
+            void log(LogType type, string message) {
+                switch (type)
+                {
+                    case LogType.Warning:
+                        Debug.LogWarning(message);
+                        break;
+                    case LogType.Error:
+                    case LogType.Assert:
+                    case LogType.Exception:
+                        Debug.LogError(message);
+                        break;
+                    default:
+                        Debug.Log(message);
+                        break;
+                }
+            }
+
             // Read a float field from a ZScript table value.
             float fld(IntPtr tbl, string key) =>
                 (float)ZsNative.zs_value_as_float(
@@ -93,17 +110,17 @@ namespace ZScript
                 IntPtr t = ZsNative.zs_table_new();
 
                 ZsNative.zs_table_set_fn(t, "Log", pin((vm2, argc, argv) => {
-                    Debug.Log(argc > 0 ? zsStr(argv[0]) : "nil");
+                    log(LogType.Log, argc > 0 ? zsStr(argv[0]) : "nil");
                     return ZsNative.zs_value_nil();
                 }), rawVm);
 
                 ZsNative.zs_table_set_fn(t, "LogWarning", pin((vm2, argc, argv) => {
-                    Debug.LogWarning(argc > 0 ? zsStr(argv[0]) : "nil");
+                    log(LogType.Warning, argc > 0 ? zsStr(argv[0]) : "nil");
                     return ZsNative.zs_value_nil();
                 }), rawVm);
 
                 ZsNative.zs_table_set_fn(t, "LogError", pin((vm2, argc, argv) => {
-                    Debug.LogError(argc > 0 ? zsStr(argv[0]) : "nil");
+                    log(LogType.Error, argc > 0 ? zsStr(argv[0]) : "nil");
                     return ZsNative.zs_value_nil();
                 }), rawVm);
 

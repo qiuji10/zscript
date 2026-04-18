@@ -1,0 +1,154 @@
+name: Unity IL2CPP Link.xml Smoke
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Validates the IL2CPP link.xml preservation metadata on self-hosted Unity
+# runners.  Each job:
+#   1. Builds the native zscript_unity plugin for the host platform.
+#   2. Runs ZsBuildScript.ValidateLinkXml() in Unity batch mode which:
+#        a. Regenerates Assets/link.xml from the project's compiled assemblies.
+#        b. Verifies ZScript.Runtime is fully preserved.
+#        c. Verifies ZScriptGenerated namespace is preserved.
+#        d. Verifies every <type> entry resolves to a loaded assembly type.
+#   3. Exits with code 0 on pass, 1 on fail — the step fails the job.
+#
+# Same security model as unity-test.yml:
+#   • Only called from trusted parent workflows, never from pull_request.
+#   • `if: github.repository_owner == 'qiuji10'` guard on every job.
+#   • "unity-runner" GitHub Environment with required-reviewer approval.
+#   • Kill switch: UNITY_RUNNER_ENABLED repo variable.
+# ──────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Windows runner
+  # ─────────────────────────────────────────────────────────────────────────────
+  ilcpp-smoke-windows:
+    name: IL2CPP link.xml smoke (Windows)
+    if: |
+      github.repository_owner == 'qiuji10' &&
+      vars.UNITY_RUNNER_ENABLED != 'false'
+    runs-on: [ self-hosted, windows, unity ]
+    environment: unity-runner
+    continue-on-error: true
+
+    env:
+      BUILD_DIR: build-unity-smoke
+      UNITY_PATH: ${{ vars.UNITY_PATH || 'C:\Program Files\Unity\Hub\Editor\6000.3.9f1\Editor\Unity.exe' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Configure CMake (MSVC x64)
+        shell: cmd
+        run: |
+          if exist %BUILD_DIR% rmdir /s /q %BUILD_DIR%
+          cmake -B %BUILD_DIR% -A x64 ^
+            -DZSCRIPT_UNITY=ON ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DUNITY_PLUGINS_DIR=%CD%\unity\com.zscript.runtime\Plugins
+
+      - name: Build zscript_unity
+        shell: cmd
+        run: cmake --build %BUILD_DIR% --config Release --target zscript_unity
+
+      - name: Install DLL into Plugins/
+        shell: cmd
+        run: cmake --install %BUILD_DIR% --config Release
+
+      - name: Clean Unity temp files
+        shell: cmd
+        run: |
+          if exist unity\UnityProject\Temp    rmdir /s /q unity\UnityProject\Temp
+          if exist unity\UnityProject\Logs    rmdir /s /q unity\UnityProject\Logs
+          if exist unity\UnityProject\Library rmdir /s /q unity\UnityProject\Library
+
+      - name: Run link.xml validation
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $RepoRoot = (Get-Location).Path
+          $proc = Start-Process -FilePath "$env:UNITY_PATH" `
+            -ArgumentList "-batchmode -nographics -projectPath `"$RepoRoot\unity\UnityProject`" -executeMethod ZScript.Editor.ZsBuildScript.ValidateLinkXml -logFile `"$RepoRoot\unity\UnityProject\ILCPPSmoke.log`"" `
+            -PassThru
+          $proc.WaitForExit()
+          exit $proc.ExitCode
+
+      - name: Upload smoke log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ilcpp-smoke-log-windows
+          path: unity/UnityProject/ILCPPSmoke.log
+          if-no-files-found: warn
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # macOS runner
+  # ─────────────────────────────────────────────────────────────────────────────
+  ilcpp-smoke-macos:
+    name: IL2CPP link.xml smoke (macOS)
+    if: |
+      github.repository_owner == 'qiuji10' &&
+      vars.UNITY_RUNNER_ENABLED != 'false'
+    runs-on: [ self-hosted, macos, unity ]
+    environment: unity-runner
+    continue-on-error: true
+
+    env:
+      BUILD_DIR: build-unity-smoke
+      UNITY_PATH: ${{ vars.UNITY_PATH_MAC || '/Applications/Unity/Hub/Editor/6000.3.9f1/Unity.app/Contents/MacOS/Unity' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Configure CMake (macOS)
+        run: |
+          rm -rf "$BUILD_DIR"
+          cmake -B "$BUILD_DIR" \
+            -DZSCRIPT_UNITY=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUNITY_PLUGINS_DIR="$PWD/unity/com.zscript.runtime/Plugins"
+
+      - name: Build zscript_unity
+        run: cmake --build "$BUILD_DIR" --config Release --target zscript_unity
+
+      - name: Install dylib/bundle into Plugins/
+        run: cmake --install "$BUILD_DIR" --config Release
+
+      - name: Remove macOS quarantine from plugin
+        run: xattr -rd com.apple.quarantine unity/com.zscript.runtime/Plugins/macOS/ || true
+
+      - name: Clean Unity temp files
+        run: rm -rf unity/UnityProject/Temp unity/UnityProject/Logs unity/UnityProject/Library
+
+      - name: Run link.xml validation
+        timeout-minutes: 15
+        run: |
+          "$UNITY_PATH" \
+            -batchmode -nographics \
+            -projectPath "$PWD/unity/UnityProject" \
+            -executeMethod ZScript.Editor.ZsBuildScript.ValidateLinkXml \
+            -logFile "$PWD/unity/UnityProject/ILCPPSmoke.log"
+
+      - name: Upload smoke log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ilcpp-smoke-log-macos
+          path: unity/UnityProject/ILCPPSmoke.log
+          if-no-files-found: warn

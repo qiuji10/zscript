@@ -46,6 +46,11 @@ on:
         required: false
         type: boolean
         default: true
+      run_ilcpp_smoke:
+        description: "Run Unity IL2CPP link.xml smoke child pipeline"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -58,10 +63,24 @@ jobs:
       rng_seed: ${{ inputs.rng_seed || '' }}
       run_fuzz: ${{ github.event_name != 'workflow_dispatch' || inputs.run_fuzz }}
 
+  link-xml-validate:
+    name: Static link.xml validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate link.xml
+        run: python3 tools/validate_link_xml.py
+
   unity-tests:
     name: Unity EditMode child pipeline
     if: ${{ (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch' || inputs.run_unity) }}
     uses: ./.github/workflows/unity-test.yml
+    secrets: inherit
+
+  unity-ilcpp-smoke:
+    name: Unity IL2CPP link.xml smoke child pipeline
+    if: ${{ (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch' || inputs.run_ilcpp_smoke) }}
+    uses: ./.github/workflows/unity-ilcpp-smoke.yml
     secrets: inherit
 
   unity-plugin-package:
@@ -72,7 +91,7 @@ jobs:
   dev-summary:
     name: Summary
     if: always()
-    needs: [native-ci, unity-tests, unity-plugin-package]
+    needs: [native-ci, link-xml-validate, unity-tests, unity-ilcpp-smoke, unity-plugin-package]
     runs-on: ubuntu-latest
 
     steps:
@@ -89,14 +108,24 @@ jobs:
       - name: Publish summary
         env:
           NATIVE_RESULT: ${{ needs.native-ci.result }}
+          LINK_XML_RESULT: ${{ needs.link-xml-validate.result }}
           UNITY_RESULT: ${{ needs.unity-tests.result }}
+          ILCPP_RESULT: ${{ needs.unity-ilcpp-smoke.result }}
           PACKAGE_RESULT: ${{ needs.unity-plugin-package.result }}
         shell: bash
         run: |
           python3 tools/render_junit_summary.py test-artifacts >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${LINK_XML_RESULT}" != "success" ] && [ "${LINK_XML_RESULT}" != "skipped" ]; then
+            echo "> :warning: Static link.xml validation result: ${LINK_XML_RESULT}" >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ "${UNITY_RESULT}" = "skipped" ]; then
             echo "> Unity EditMode tests were skipped for this run." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${ILCPP_RESULT}" = "skipped" ]; then
+            echo "> Unity IL2CPP link.xml smoke was skipped for this run." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${ILCPP_RESULT}" != "success" ]; then
+            echo "> :warning: Unity IL2CPP link.xml smoke result: ${ILCPP_RESULT}" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ "${PACKAGE_RESULT}" != "success" ] && [ "${PACKAGE_RESULT}" != "skipped" ]; then
             echo "> Unity plugin packaging result: ${PACKAGE_RESULT}" >> "$GITHUB_STEP_SUMMARY"

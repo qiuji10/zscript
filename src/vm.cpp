@@ -169,7 +169,6 @@ std::vector<Value> VM::invoke_from_native(Value callee, std::vector<Value> args)
     if (callee.is_native()) {
         return callee.as_native()->fn(std::move(args));
     }
-    if (!callee.is_closure()) return {Value::nil()};
 
     // Find the register high-water mark across all active frames.
     uint16_t top = 0;
@@ -182,23 +181,12 @@ std::vector<Value> VM::invoke_from_native(Value callee, std::vector<Value> args)
         throw RuntimeError{"invoke_from_native: register overflow", ""};
     }
 
-    Proto* proto = callee.as_closure()->proto;
     regs_[top] = callee;
     for (size_t i = 0; i < args.size(); ++i)
         regs_[top + 1 + i] = args[i];
-    for (size_t i = args.size(); i < proto->num_params; ++i)
-        regs_[top + 1 + i] = Value::nil();
 
     size_t saved_depth = frames_.size();
-    CallFrame frame;
-    frame.proto       = proto;
-    frame.pc          = 0;
-    frame.base_reg    = (uint8_t)(top + 1);
-    frame.num_results = 1;
-    frame.closure     = callee.as_closure();
-    frames_.push_back(frame);
-
-    if (!run(saved_depth)) {
+    if (!call((uint8_t)top, (uint8_t)args.size(), 1) || !run(saved_depth)) {
         throw RuntimeError{last_error_.message, last_error_.trace};
     }
     return {regs_[top]};
@@ -1670,11 +1658,10 @@ std::vector<VM::DebugFrame> VM::debug_frames() const {
         DebugFrame df;
         df.name   = (f.proto && !f.proto->name.empty()) ? f.proto->name : "<main>";
         df.source = source_file_;
-        // The line hook fires BEFORE pc is incremented for the innermost frame,
-        // so for it we use f.pc directly. For outer (suspended) frames, pc was
-        // already incremented past the Call instruction, so use f.pc - 1.
-        bool is_innermost = (i == frames_.size() - 1);
-        size_t line_pc = is_innermost ? f.pc : (f.pc > 0 ? f.pc - 1 : 0);
+        // debug_frames() is queried from native callbacks and tooling after the
+        // interpreter has already advanced pc past the current instruction.
+        // Use the previously executed instruction slot for all active frames.
+        size_t line_pc = f.pc > 0 ? f.pc - 1 : 0;
         df.line = (f.proto && line_pc < f.proto->lines.size())
                   ? (int)f.proto->lines[line_pc] : 0;
         if (f.proto) {
@@ -1738,7 +1725,9 @@ Value VM::call_global(const std::string& name, std::vector<Value> args) {
 // Call instruction handler
 // ===========================================================================
 bool VM::call(uint8_t base_reg_offset, uint8_t num_args, uint8_t num_results) {
-    uint8_t abs_base = cur_frame().base_reg + base_reg_offset;
+    uint8_t abs_base = frames_.empty()
+        ? base_reg_offset
+        : (uint8_t)(cur_frame().base_reg + base_reg_offset);
     Value& callee = regs_[abs_base];
 
     if (callee.is_native()) {
@@ -2837,26 +2826,19 @@ bool VM::run(size_t stop_depth) {
 // call_value — call any callable Value from C++
 // ===========================================================================
 Value VM::call_value(const Value& fn, std::vector<Value> args) {
-    if (fn.is_native()) {
-        auto results = fn.as_native()->fn(std::move(args));
-        return results.empty() ? Value::nil() : results[0];
+    uint8_t base = 0;
+    regs_[base] = fn;
+    for (size_t i = 0; i < args.size(); ++i)
+        regs_[base + 1 + i] = args[i];
+    frames_.clear();
+    try {
+        call(base, (uint8_t)args.size(), 1);
+        run();
+        return regs_[base];
+    } catch (const RuntimeError& e) {
+        last_error_ = e;
+        return Value::nil();
     }
-    if (fn.is_closure()) {
-        uint8_t base = 0;
-        regs_[base] = fn;
-        for (size_t i = 0; i < args.size(); ++i)
-            regs_[base + 1 + i] = args[i];
-        frames_.clear();
-        try {
-            call(base, (uint8_t)args.size(), 1);
-            run();
-            return regs_[base];
-        } catch (const RuntimeError& e) {
-            last_error_ = e;
-            return Value::nil();
-        }
-    }
-    return Value::nil();
 }
 
 // ===========================================================================

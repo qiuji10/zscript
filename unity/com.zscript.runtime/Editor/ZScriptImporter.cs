@@ -64,8 +64,7 @@ namespace ZScript.Editor
             try
             {
                 byte[] err = new byte[1024];
-                string name = Path.GetFileNameWithoutExtension(ctx.assetPath);
-                int ok = ZsNative.zs_vm_load_source(vm, name, source, err, err.Length);
+                int ok = ZsNative.zs_vm_load_source(vm, ctx.assetPath, source, err, err.Length);
                 if (ok == 0)
                 {
                     string msg = Encoding.UTF8.GetString(err).TrimEnd('\0');

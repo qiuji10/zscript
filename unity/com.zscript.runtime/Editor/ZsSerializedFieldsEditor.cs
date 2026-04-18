@@ -32,8 +32,9 @@ namespace ZScript.Editor
             // ---- Header ----
             EditorGUILayout.LabelField("Serialized ZScript Fields", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "Values are injected into the ZScript instance before start() runs.\n" +
+                "Values are injected into the ZScript instance before Start() runs.\n" +
                 "Field names must match ZScript field names exactly (case-sensitive).\n" +
+                "Read instance fields from methods as self.<field>.\n" +
                 "Use @unity.serialize on the ZScript class to mark it as serializable.",
                 MessageType.Info);
 

@@ -3,7 +3,6 @@
 // Drag onto ZScriptVM.startupModules in the Inspector; the VM loads each
 // module in list order during Start().
 using UnityEngine;
-
 namespace ZScript
 {
     /// <summary>
@@ -23,6 +22,38 @@ namespace ZScript
         [Tooltip("Logical name used as the chunk name for error messages. " +
                  "Defaults to the asset name if left blank.")]
         public string moduleName;
+
+        [SerializeField, HideInInspector]
+        private string scriptAssetPath;
+
+#if UNITY_EDITOR
+        private void OnValidate()
+        {
+            scriptAssetPath = scriptAsset != null
+                ? UnityEditor.AssetDatabase.GetAssetPath(scriptAsset)
+                : string.Empty;
+        }
+#endif
+
+        private string ResolveChunkName()
+        {
+            if (!string.IsNullOrEmpty(scriptAssetPath))
+                return scriptAssetPath;
+
+#if UNITY_EDITOR
+            if (scriptAsset != null)
+            {
+                string assetPath = UnityEditor.AssetDatabase.GetAssetPath(scriptAsset);
+                if (!string.IsNullOrEmpty(assetPath))
+                {
+                    scriptAssetPath = assetPath;
+                    return assetPath;
+                }
+            }
+#endif
+
+            return string.IsNullOrEmpty(moduleName) ? name : moduleName;
+        }
 
         /// <summary>
         /// Load this module into the given VM.  Uses inline source from
@@ -44,7 +75,7 @@ namespace ZScript
                 return false;
             }
 
-            string chunkName = string.IsNullOrEmpty(moduleName) ? name : moduleName;
+            string chunkName = ResolveChunkName();
             return vm.LoadSource(chunkName, scriptAsset.text);
         }
     }

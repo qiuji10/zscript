@@ -94,14 +94,17 @@ namespace ZScript.Editor
 
             int typeCount = byAssembly.Values.Sum(l => l.Count);
             Debug.Log($"[ZScript] Generated {OutputPath} — {typeCount} user type(s) preserved.");
-            EditorUtility.DisplayDialog(
-                "ZScript link.xml Generator",
-                $"link.xml written to {OutputPath}\n\n" +
-                $"Preserved:\n" +
-                $"  • ZScript.Runtime assembly (all types)\n" +
-                $"  • ZScriptGenerated namespace\n" +
-                $"  • {typeCount} user type(s) with [ZScriptExport] or IZScriptExport",
-                "OK");
+            if (!Application.isBatchMode)
+            {
+                EditorUtility.DisplayDialog(
+                    "ZScript link.xml Generator",
+                    $"link.xml written to {OutputPath}\n\n" +
+                    $"Preserved:\n" +
+                    $"  • ZScript.Runtime assembly (all types)\n" +
+                    $"  • ZScriptGenerated namespace\n" +
+                    $"  • {typeCount} user type(s) with [ZScriptExport] or IZScriptExport",
+                    "OK");
+            }
         }
 
         // ----------------------------------------------------------------

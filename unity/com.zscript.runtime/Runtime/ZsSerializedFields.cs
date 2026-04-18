@@ -7,7 +7,7 @@
 //   1. Annotate your ZScript class: @unity.serialize class Enemy { var hp = 100 }
 //   2. Attach ZsComponentBridge + ZsSerializedFields to a GameObject.
 //   3. In the Inspector, add a "hp" field of type Int and set it.
-//   4. ZsComponentBridge.Start() calls Apply() before invoking the ZScript start()
+//   4. ZsComponentBridge.Start() calls Apply() before invoking the ZScript Start()
 //      method, so the values arrive before any script logic runs.
 //
 // Field names must match the ZScript field names exactly (case-sensitive).
@@ -54,7 +54,7 @@ namespace ZScript
     /// Stores Unity-inspector-editable field values for a <c>@unity.serialize</c>
     /// ZScript class. <see cref="ZsComponentBridge"/> reads and injects these
     /// values into the ZScript instance via <see cref="Apply"/> before calling
-    /// the ZScript <c>start()</c> lifecycle method.
+    /// the ZScript <c>Start()</c> lifecycle method.
     /// </summary>
     [AddComponentMenu("ZScript/ZScript Serialized Fields")]
     [DisallowMultipleComponent]

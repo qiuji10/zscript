@@ -63,6 +63,12 @@ TEST_CASE("zs_value_string round-trip", "[c_api][value]") {
     zs_value_free(v);
 }
 
+TEST_CASE("zs_value_as_string reports length when buffer is null", "[c_api][value]") {
+    ZsValue v = zs_value_string("hello");
+    CHECK(zs_value_as_string(v, nullptr, 0) == 5);
+    zs_value_free(v);
+}
+
 TEST_CASE("zs_value_clone produces independent copy", "[c_api][value]") {
     ZsValue orig  = zs_value_int(42);
     ZsValue clone = zs_value_clone(orig);
@@ -116,12 +122,67 @@ TEST_CASE("zs_vm_call invokes a global function", "[c_api][call]") {
     zs_vm_free(vm);
 }
 
+TEST_CASE("zs_value_invoke can instantiate a class value", "[c_api][call]") {
+    ZsVM vm = make_vm();
+    char err[256] = {};
+    REQUIRE(zs_vm_load_source(
+        vm,
+        "<t>",
+        "class HelloBehaviour { var message = \"hello from zscript\" }",
+        err,
+        sizeof(err)));
+
+    ZsValue cls = zs_vm_get_global(vm, "HelloBehaviour");
+    REQUIRE(cls != nullptr);
+
+    ZsValue instance = nullptr;
+    int ok = zs_value_invoke(vm, cls, 0, nullptr, &instance, err, sizeof(err));
+    CHECK(ok == 1);
+    REQUIRE(instance != nullptr);
+
+    ZsValue message = zs_vm_handle_get_field(vm, instance, "message");
+    CHECK(zs_value_type(message) == ZS_TYPE_STRING);
+
+    char buf[64] = {};
+    int len = zs_value_as_string(message, buf, sizeof(buf));
+    CHECK(len == 18);
+    CHECK(std::string(buf) == "hello from zscript");
+
+    zs_value_free(message);
+    zs_value_free(instance);
+    zs_value_free(cls);
+    zs_vm_free(vm);
+}
+
 TEST_CASE("zs_vm_call undefined function reports error", "[c_api][call]") {
     ZsVM vm = make_vm();
     char err[256] = {};
     int ok = zs_vm_call(vm, "does_not_exist", 0, nullptr, nullptr, err, sizeof(err));
     CHECK(ok == 0);
     CHECK(err[0] != '\0');
+    zs_vm_free(vm);
+}
+
+TEST_CASE("zs_vm_get_top_frame reports active source location", "[c_api][debug]") {
+    ZsVM vm = make_vm();
+
+    zs_vm_register_fn(vm, "probe_frame", [](ZsVM innerVm, int, ZsValue*) -> ZsValue {
+        char source[256] = {};
+        int line = 0;
+        CHECK(zs_vm_get_top_frame(innerVm, source, sizeof(source), &line) == 1);
+        CHECK(std::string(source) == "<debug-test>");
+        CHECK(line == 1);
+        return zs_value_nil();
+    });
+
+    char err[256] = {};
+    REQUIRE(zs_vm_load_source(
+        vm,
+        "<debug-test>",
+        "fn run() { probe_frame() }\nrun()",
+        err,
+        sizeof(err)));
+
     zs_vm_free(vm);
 }
 

@@ -95,7 +95,7 @@ namespace ZScript
 
         private void Start()
         {
-            // Inject @unity.serialize field values before the ZScript start() runs
+            // Inject @unity.serialize field values before the ZScript Start() runs
             // so scripts can read inspector-configured values from the very first line.
             GetComponent<ZsSerializedFields>()?.Apply(Instance);
             Call("Start");

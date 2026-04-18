@@ -247,6 +247,16 @@ ZS_API int zs_vm_get_class_annotations(ZsVM vm, const char* class_name,
 ZS_API int zs_vm_find_annotated_classes(ZsVM vm, const char* ns, const char* name,
                                         char* buf, int buf_len);
 
+// ---------------------------------------------------------------------------
+// Debug frame query
+// ---------------------------------------------------------------------------
+// Returns 1 if a currently executing ZScript frame is available, 0 otherwise.
+// Writes the top frame's source path into source_buf and its 1-based line into
+// out_line when the corresponding pointers are non-null.
+ZS_API int zs_vm_get_top_frame(ZsVM vm,
+                               char* source_buf, int source_buf_len,
+                               int* out_line);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif
