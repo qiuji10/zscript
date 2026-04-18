@@ -6,6 +6,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+// IZScriptExport auto-discovery uses reflection.
+using System.Reflection;
 
 namespace ZScript
 {
@@ -39,6 +41,13 @@ namespace ZScript
         // ----------------------------------------------------------------
         /// <summary>The shared C# object pool for Unity ↔ ZScript object handles.</summary>
         public ZsObjectPool ObjectPool { get; } = new ZsObjectPool();
+
+        /// <summary>
+        /// Registry of <c>@unity.adapter</c> ZScript classes.
+        /// Call <see cref="ZsAdapterRegistry.Refresh"/> after all scripts are loaded,
+        /// or let <see cref="Start"/> do it automatically.
+        /// </summary>
+        public ZsAdapterRegistry AdapterRegistry { get; } = new ZsAdapterRegistry();
 
         public bool LoadFile(string path)
         {
@@ -181,6 +190,13 @@ namespace ZScript
             return new ZsValueHandle(ZsNative.zs_vm_push_object_handle(_vm, id));
         }
 
+        /// <summary>
+        /// Wrap <paramref name="obj"/> using its <c>@unity.adapter</c> ZScript class
+        /// if one is registered in <see cref="AdapterRegistry"/>; otherwise falls back
+        /// to a plain <see cref="WrapObject"/> proxy.
+        /// </summary>
+        public ZsValueHandle WrapAdapted(object obj) => AdapterRegistry.Wrap(this, obj);
+
         /// <summary>Retrieve the C# object behind a ZScript proxy value.</summary>
         public object UnwrapObject(ZsValueHandle val)
         {
@@ -247,6 +263,58 @@ namespace ZScript
 
         /// <summary>Raw VM handle — for advanced binding code only.</summary>
         public IntPtr RawVM => _vm;
+
+        // ----------------------------------------------------------------
+        // IZScriptExport auto-discovery
+        // ----------------------------------------------------------------
+        // Cached once per AppDomain load — avoids re-scanning assemblies on every Awake().
+        private static List<Type> s_exportTypes;
+
+        private static List<Type> GetExportTypes()
+        {
+            if (s_exportTypes != null) return s_exportTypes;
+            s_exportTypes = new List<Type>();
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                // Skip Unity engine and BCL assemblies for speed.
+                string asmName = asm.GetName().Name;
+                if (asmName.StartsWith("UnityEngine",  StringComparison.Ordinal) ||
+                    asmName.StartsWith("UnityEditor",  StringComparison.Ordinal) ||
+                    asmName.StartsWith("Unity.",       StringComparison.Ordinal) ||
+                    asmName.StartsWith("System",       StringComparison.Ordinal) ||
+                    asmName.StartsWith("mscorlib",     StringComparison.Ordinal) ||
+                    asmName.StartsWith("Mono.",        StringComparison.Ordinal) ||
+                    asmName.StartsWith("nunit",        StringComparison.Ordinal))
+                    continue;
+                try
+                {
+                    foreach (var t in asm.GetTypes())
+                    {
+                        if (t.IsAbstract || t.IsInterface) continue;
+                        if (typeof(IZScriptExport).IsAssignableFrom(t))
+                            s_exportTypes.Add(t);
+                    }
+                }
+                catch { /* assembly with no accessible types */ }
+            }
+            return s_exportTypes;
+        }
+
+        private void RegisterExports()
+        {
+            foreach (var t in GetExportTypes())
+            {
+                try
+                {
+                    var exporter = (IZScriptExport)Activator.CreateInstance(t);
+                    exporter.Register(this);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[ZScript] IZScriptExport '{t.FullName}' failed to register: {e.Message}");
+                }
+            }
+        }
 
         // ----------------------------------------------------------------
         // Unity lifecycle
@@ -344,6 +412,10 @@ fn WaitWhile(pred) {
             ZsUGUIBindings.Register(this);
 #endif
 
+            // Auto-discover and register all IZScriptExport implementations found in
+            // user assemblies. Generated bindings and hand-written ones are both picked up.
+            RegisterExports();
+
             // Activate inspector-configured tags.
             foreach (string tag in tags)
                 ZsNative.zs_vm_add_tag(_vm, tag);
@@ -371,6 +443,10 @@ fn WaitWhile(pred) {
                 if (ZsNative.zs_vm_enable_hotpatch(_vm, dir) == 0)
                     Debug.LogWarning("[ZScript] Hotpatch could not watch: " + dir);
             }
+
+            // Populate the adapter registry now that all scripts are loaded.
+            // @unity.adapter classes can be used immediately via WrapAdapted().
+            AdapterRegistry.Refresh(this);
         }
 
         private void Update()

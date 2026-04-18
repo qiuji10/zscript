@@ -91,8 +91,15 @@ namespace ZScript
         // ----------------------------------------------------------------
         // Unity lifecycle
         // ----------------------------------------------------------------
-        private void Awake()   => Call("Awake");
-        private void Start()   => Call("Start");
+        private void Awake() => Call("Awake");
+
+        private void Start()
+        {
+            // Inject @unity.serialize field values before the ZScript start() runs
+            // so scripts can read inspector-configured values from the very first line.
+            GetComponent<ZsSerializedFields>()?.Apply(Instance);
+            Call("Start");
+        }
         private void Update()  => Call("Update");
 
         private void FixedUpdate() => Call("FixedUpdate");
