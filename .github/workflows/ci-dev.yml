@@ -80,7 +80,7 @@ jobs:
 
       - name: Download JUnit test artifacts
         continue-on-error: true
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           pattern: '*-junit-*'
           path: test-artifacts

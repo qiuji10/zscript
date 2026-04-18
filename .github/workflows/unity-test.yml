@@ -89,7 +89,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: unity-test-results-windows
           path: |
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload JUnit test report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: unity-junit-windows
           path: unity/UnityProject/TestResults.junit.xml
@@ -166,7 +166,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: unity-test-results-macos
           path: |
@@ -182,7 +182,7 @@ jobs:
 
       - name: Upload JUnit test report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: unity-junit-macos
           path: unity/UnityProject/TestResults.junit.xml
