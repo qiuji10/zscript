@@ -18,8 +18,6 @@ namespace ZScript.Editor
 
         private static readonly string[] s_typeNames = { "Bool", "Int", "Float", "String" };
 
-        private static readonly GUIStyle s_rowStyle = null; // lazy init
-
         private void OnEnable()
         {
             _fieldsProp = serializedObject.FindProperty("fields");
