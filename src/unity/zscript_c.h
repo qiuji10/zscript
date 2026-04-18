@@ -210,6 +210,15 @@ ZS_API void    zs_table_set_value(ZsValue tbl, const char* key, ZsValue val);
 ZS_API void    zs_table_set_fn(ZsValue tbl, const char* key, ZsNativeFn fn, ZsVM vm);
 
 // ---------------------------------------------------------------------------
+// Native callable value
+// ---------------------------------------------------------------------------
+// Create a standalone callable ZsValue wrapping a C native function.
+// Useful for returning callable values from __index metamethods.
+// The returned ZsValue is heap-allocated; caller must zs_value_free() it
+// once the VM has received it (the inner shared_ptr keeps it alive).
+ZS_API ZsValue zs_vm_make_native_fn(ZsVM vm, const char* debug_name, ZsNativeFn fn);
+
+// ---------------------------------------------------------------------------
 // Coroutine API
 // ---------------------------------------------------------------------------
 // Create a coroutine from a ZScript closure value.

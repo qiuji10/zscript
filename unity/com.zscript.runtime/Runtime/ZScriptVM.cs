@@ -191,6 +191,22 @@ namespace ZScript
         }
 
         /// <summary>
+        /// Wrap a C# object with full reflection-based __index / __newindex.
+        /// Allows ZScript to access any public property, field, or method on
+        /// <paramref name="obj"/> as if it were a native ZScript table.
+        /// </summary>
+        public ZsValueHandle WrapReflected(object obj)
+        {
+            var proxy = ZsUnityBindings.ReflectionProxy;
+            if (proxy == null)
+            {
+                Debug.LogError("[ZScript] WrapReflected: ZsUnityBindings not yet registered.");
+                return null;
+            }
+            return new ZsValueHandle(proxy.Wrap(obj));
+        }
+
+        /// <summary>
         /// Wrap <paramref name="obj"/> using its <c>@unity.adapter</c> ZScript class
         /// if one is registered in <see cref="AdapterRegistry"/>; otherwise falls back
         /// to a plain <see cref="WrapObject"/> proxy.

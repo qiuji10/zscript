@@ -448,6 +448,51 @@ TEST_CASE("handle __index metamethod reachable from ZScript", "[c_api][handle]")
     zs_vm_free(vm);
 }
 
+TEST_CASE("__index native result is bound as a method receiver", "[c_api][handle]") {
+    ZsVM vm = make_vm();
+    char err[256] = {};
+
+    ZsValue proxy = zs_vm_push_object_handle(vm, 41);
+    zs_vm_handle_set_index(vm, proxy, [](ZsVM vv, int argc, ZsValue* argv) -> ZsValue {
+        if (argc < 2) return zs_value_nil();
+
+        char key[64] = {};
+        zs_value_as_string(argv[1], key, sizeof(key));
+        if (std::string(key) != "bump") return zs_value_nil();
+
+        return zs_vm_make_native_fn(vv, "bump", [](ZsVM inner_vm, int inner_argc, ZsValue* inner_argv) -> ZsValue {
+            if (inner_argc < 2) return zs_value_nil();
+            int64_t self = zs_vm_get_object_handle(inner_vm, inner_argv[0]);
+            int64_t delta = zs_value_as_int(inner_argv[1]);
+            return zs_value_int(self + delta);
+        });
+    });
+    zs_vm_set_global(vm, "proxy", proxy);
+
+    REQUIRE(zs_vm_load_source(
+        vm,
+        "<t>",
+        "fn run_dot() { return proxy.bump(1) }"
+        "fn run_index() { return proxy[\"bump\"](2) }",
+        err,
+        sizeof(err)));
+
+    ZsValue result = nullptr;
+    REQUIRE(zs_vm_call(vm, "run_dot", 0, nullptr, &result, err, sizeof(err)) == 1);
+    REQUIRE(result != nullptr);
+    CHECK(zs_value_as_int(result) == 42);
+    zs_value_free(result);
+
+    result = nullptr;
+    REQUIRE(zs_vm_call(vm, "run_index", 0, nullptr, &result, err, sizeof(err)) == 1);
+    REQUIRE(result != nullptr);
+    CHECK(zs_value_as_int(result) == 43);
+    zs_value_free(result);
+
+    zs_value_free(proxy);
+    zs_vm_free(vm);
+}
+
 // ---------------------------------------------------------------------------
 // Tag system
 // ---------------------------------------------------------------------------

@@ -2147,7 +2147,13 @@ bool VM::run(size_t stop_depth) {
                             Value idx_mm = obj_snap.as_table()->get("__index");
                             if (idx_mm.is_closure() || idx_mm.is_native()) {
                                 auto res = invoke_from_native(idx_mm, {obj_snap, Value::from_string(field)});
-                                R(A) = res.empty() ? Value::nil() : res[0];
+                                if (res.empty()) {
+                                    R(A) = Value::nil();
+                                } else if (res[0].is_native()) {
+                                    R(A) = make_bound_method(res[0], obj_snap);
+                                } else {
+                                    R(A) = res[0];
+                                }
                             } else {
                                 // Fall back to table type methods (e.g. arr.push)
                                 auto it = table_methods_.find(field);
@@ -2212,7 +2218,13 @@ bool VM::run(size_t stop_depth) {
                                 Value idx_mm = tbl->get("__index");
                                 if (idx_mm.is_closure() || idx_mm.is_native()) {
                                     auto res = invoke_from_native(idx_mm, {obj_snap, idx_snap});
-                                    R(A) = res.empty() ? Value::nil() : res[0];
+                                    if (res.empty()) {
+                                        R(A) = Value::nil();
+                                    } else if (res[0].is_native()) {
+                                        R(A) = make_bound_method(res[0], obj_snap);
+                                    } else {
+                                        R(A) = res[0];
+                                    }
                                 } else {
                                     R(A) = Value::nil();
                                 }

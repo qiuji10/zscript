@@ -222,6 +222,10 @@ namespace ZScript
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern void zs_table_set_fn(IntPtr tbl, string key, ZsNativeFn fn, IntPtr vm);
 
+        // Native callable value
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr zs_vm_make_native_fn(IntPtr vm, string debugName, ZsNativeFn fn);
+
         // Annotation query
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern int zs_vm_get_class_annotations(

@@ -483,6 +483,14 @@ void zs_table_set_fn(ZsValue tbl, const char* key, ZsNativeFn fn, ZsVM vm_handle
 }
 
 // ===========================================================================
+// Native callable value
+// ===========================================================================
+ZsValue zs_vm_make_native_fn(ZsVM vm_handle, const char* debug_name, ZsNativeFn fn) {
+    if (!fn) return new ZsValueBox(zscript::Value::nil());
+    return new ZsValueBox(wrap_native(debug_name ? debug_name : "native", fn, vm_handle));
+}
+
+// ===========================================================================
 // Coroutine API
 // ===========================================================================
 

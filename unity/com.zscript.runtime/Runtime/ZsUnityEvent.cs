@@ -470,5 +470,50 @@ namespace ZScript
             ZsNative.zs_table_set_value(tbl, "y", y.Raw);
             return tbl;
         }
+
+        // Vector4 → ZScript table {x, y, z, w}
+        public static IntPtr Vector4(UnityEngine.Vector4 v)
+        {
+            IntPtr tbl = ZsNative.zs_table_new();
+            using var x = new ZsValueHandle(ZsNative.zs_value_float(v.x));
+            using var y = new ZsValueHandle(ZsNative.zs_value_float(v.y));
+            using var z = new ZsValueHandle(ZsNative.zs_value_float(v.z));
+            using var w = new ZsValueHandle(ZsNative.zs_value_float(v.w));
+            ZsNative.zs_table_set_value(tbl, "x", x.Raw);
+            ZsNative.zs_table_set_value(tbl, "y", y.Raw);
+            ZsNative.zs_table_set_value(tbl, "z", z.Raw);
+            ZsNative.zs_table_set_value(tbl, "w", w.Raw);
+            return tbl;
+        }
+
+        // Quaternion → ZScript table {x, y, z, w}
+        public static IntPtr Quaternion(UnityEngine.Quaternion q)
+        {
+            IntPtr tbl = ZsNative.zs_table_new();
+            using var x = new ZsValueHandle(ZsNative.zs_value_float(q.x));
+            using var y = new ZsValueHandle(ZsNative.zs_value_float(q.y));
+            using var z = new ZsValueHandle(ZsNative.zs_value_float(q.z));
+            using var w = new ZsValueHandle(ZsNative.zs_value_float(q.w));
+            ZsNative.zs_table_set_value(tbl, "x", x.Raw);
+            ZsNative.zs_table_set_value(tbl, "y", y.Raw);
+            ZsNative.zs_table_set_value(tbl, "z", z.Raw);
+            ZsNative.zs_table_set_value(tbl, "w", w.Raw);
+            return tbl;
+        }
+
+        // Color → ZScript table {r, g, b, a}
+        public static IntPtr Color(UnityEngine.Color c)
+        {
+            IntPtr tbl = ZsNative.zs_table_new();
+            using var r = new ZsValueHandle(ZsNative.zs_value_float(c.r));
+            using var g = new ZsValueHandle(ZsNative.zs_value_float(c.g));
+            using var b = new ZsValueHandle(ZsNative.zs_value_float(c.b));
+            using var a = new ZsValueHandle(ZsNative.zs_value_float(c.a));
+            ZsNative.zs_table_set_value(tbl, "r", r.Raw);
+            ZsNative.zs_table_set_value(tbl, "g", g.Raw);
+            ZsNative.zs_table_set_value(tbl, "b", b.Raw);
+            ZsNative.zs_table_set_value(tbl, "a", a.Raw);
+            return tbl;
+        }
     }
 }
