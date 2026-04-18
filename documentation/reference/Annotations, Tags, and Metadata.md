@@ -53,6 +53,95 @@ Important properties of this design:
 
 This is why `__annotations__` is not the source of truth for host integrations.
 
+---
+
+## Unity-Defined Annotations
+
+These annotations are defined by convention and consumed by the Unity runtime package. They have no special meaning to the ZScript compiler itself.
+
+### @unity.component
+
+Marks a ZScript class as a Unity component. The Unity runtime discovers classes with this annotation to build component pickers and support `ZScriptVM.AttachComponent`.
+
+```ts
+@unity.component
+class PlayerController {
+    fn start()  { }
+    fn update()  { }
+    fn onDestroy() { }
+}
+```
+
+Query from C#:
+
+```csharp
+string[] classes = vm.GetComponentClasses();
+// or
+string[] classes = vm.FindAnnotatedClasses("unity", "component");
+```
+
+### @unity.serialize
+
+Marks a ZScript class as having Unity inspector-editable fields. A `ZsSerializedFields` MonoBehaviour component stores the inspector values; `ZsComponentBridge` injects them into the ZScript instance before `start()` is called.
+
+Field names in the Inspector must match ZScript field names exactly (case-sensitive).
+
+```ts
+@unity.serialize
+@unity.component
+class Enemy {
+    var hp    = 100
+    var speed = 3.5
+    var label = "enemy"
+
+    fn start() {
+        // hp, speed, and label are already set from the Inspector by the time
+        // start() runs — safe to read them here
+        Debug.Log("hp=" + self.hp)
+    }
+}
+```
+
+Supported field types: `Bool`, `Int`, `Float`, `String`.
+
+Query from C# (to check whether a class is serializable):
+
+```csharp
+string[] annotations = vm.GetClassAnnotations("Enemy");
+// annotations contains "unity.serialize" and "unity.component"
+```
+
+### @unity.adapter
+
+Marks a ZScript class as a typed adapter for a C# object. An adapter wraps a raw C# proxy and provides a clean ZScript API. The adapter's constructor receives the C# proxy as its first argument.
+
+Convention: the ZScript class name must match the C# type's simple name.
+
+```ts
+@unity.adapter
+class Rigidbody {
+    fn new(proxy) { self._rb = proxy }
+
+    fn velocity()          { return self._rb.velocity }
+    fn addForce(x, y, z)   { self._rb.AddForce(x, y, z) }
+}
+```
+
+After `ZScriptVM.Start()` runs:
+
+```csharp
+// Returns a Rigidbody adapter wrapping the C# Rigidbody, not a raw proxy
+ZsValueHandle adapted = vm.WrapAdapted(rigidBody);
+```
+
+Manually map type names when class names diverge:
+
+```csharp
+vm.AdapterRegistry.Register("UnityEngine.Rigidbody", "Rigidbody");
+```
+
+---
+
 ## Tags
 
 Tags are compile-time conditional blocks:
@@ -88,6 +177,8 @@ From embedding hosts:
 - engine-specific branches such as `@unity`
 - scenario or build-flavor blocks such as `@demo`, `@server`, or `@editor`
 
+---
+
 ## Host Query APIs
 
 Hosts can query the annotation registry after script load.
@@ -105,16 +196,21 @@ Common integration pattern:
 3. ask the host bridge for classes carrying a particular annotation
 4. instantiate or bind host behavior based on those results
 
-## Unity-Specific Usage
+### Unity C# Query Examples
 
-The Unity runtime uses annotations and helper lookups to discover interesting ZScript classes.
+```csharp
+// All classes with @unity.component
+string[] components = vm.GetComponentClasses();
 
-Examples include component-like or engine-specific metadata such as:
+// All classes with a custom annotation
+string[] serializable = vm.FindAnnotatedClasses("unity", "serialize");
 
-- `@component`
-- `@unity.component`
+// All annotations on a specific class
+string[] annotations = vm.GetClassAnnotations("PlayerController");
+// e.g. ["unity.component", "unity.serialize"]
+```
 
-See [[../integrations/Unity Integration]] for the higher-level Unity-facing workflow.
+---
 
 ## Design Notes
 
@@ -124,6 +220,8 @@ See [[../integrations/Unity Integration]] for the higher-level Unity-facing work
 - annotations are selected by the host's discovery logic
 
 Those roles are complementary and should not be mixed together.
+
+The Unity-defined annotations (`@unity.component`, `@unity.serialize`, `@unity.adapter`) are conventions. The ZScript compiler treats them the same as any other annotation; the Unity runtime package gives them their specific meaning.
 
 ## Related Pages
 
